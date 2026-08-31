@@ -4,31 +4,20 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { formatDate, peso } from "@/lib/utils";
 import BookingActions from "@/components/BookingActions";
+import PaymentLinkActions from "@/components/PaymentLinkActions";
 
-export default async function BookingsPage() {
+export default async function Bookings() {
   const db = supabaseAdmin();
 
-  const { data, error } = await db
+  const { data } = await db
     .from("bookings")
     .select(
-      "id,reference_code,customer_name,mobile_number,preferred_date,preferred_time,status,estimated_total,down_payment,created_at"
+      "id,reference_code,access_token,customer_name,mobile_number,preferred_date,preferred_time,status,estimated_total,down_payment,created_at"
     )
-    .order("preferred_date", {
-      ascending: true,
+    .order("created_at", {
+      ascending: false,
     })
-    .order("preferred_time", {
-      ascending: true,
-    })
-    .limit(200);
-
-  if (error) {
-    console.error(
-      "Bookings page error:",
-      error
-    );
-  }
-
-  const bookings = data || [];
+    .limit(100);
 
   return (
     <>
@@ -43,122 +32,148 @@ export default async function BookingsPage() {
           </h1>
 
           <p className="muted">
-            Review requests, manage appointments,
-            reschedule clients, and track payments.
+            Manage booking requests, customer
+            links, payments, and appointment
+            status.
           </p>
         </div>
       </div>
 
-      <div className="admin-booking-list">
-        {bookings.map((booking) => {
-          const total =
-            Number(
-              booking.estimated_total || 0
-            );
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                Customer
+              </th>
 
-          const paid =
-            Number(
-              booking.down_payment || 0
-            );
+              <th>
+                Appointment
+              </th>
 
-          const remaining =
-            Math.max(
-              0,
-              total - paid
-            );
+              <th>
+                Status
+              </th>
 
-          return (
-            <article
-              className="admin-booking-card"
-              key={booking.id}
-            >
-              <div className="admin-booking-main">
-                <div>
-                  <div className="kicker">
-                    {booking.reference_code}
-                  </div>
+              <th>
+                Total
+              </th>
 
-                  <h2 className="serif">
-                    {booking.customer_name}
-                  </h2>
+              <th>
+                Actions
+              </th>
+            </tr>
+          </thead>
 
-                  <p className="muted">
-                    {booking.mobile_number}
-                  </p>
-                </div>
+          <tbody>
+            {(data || []).map(
+              (booking) => (
+                <tr
+                  key={
+                    booking.id
+                  }
+                >
+                  <td>
+                    <strong>
+                      {
+                        booking.customer_name
+                      }
+                    </strong>
 
-                <span className="status-pill">
-                  {booking.status}
-                </span>
-              </div>
+                    <br />
 
-              <div className="admin-booking-grid">
-                <div>
-                  <span className="admin-label">
-                    Appointment
-                  </span>
+                    {
+                      booking.reference_code
+                    }
 
-                  <strong>
+                    <br />
+
+                    <span className="muted">
+                      {
+                        booking.mobile_number
+                      }
+                    </span>
+                  </td>
+
+                  <td>
                     {formatDate(
                       booking.preferred_date
                     )}
-                  </strong>
 
-                  <span className="muted">
-                    {booking.preferred_time}
-                  </span>
-                </div>
+                    <br />
 
-                <div>
-                  <span className="admin-label">
-                    Total
-                  </span>
+                    {
+                      booking.preferred_time
+                    }
+                  </td>
 
-                  <strong>
-                    {peso(total)}
-                  </strong>
-                </div>
+                  <td>
+                    <span className="status-pill">
+                      {
+                        booking.status
+                      }
+                    </span>
+                  </td>
 
-                <div>
-                  <span className="admin-label">
-                    Down payment
-                  </span>
+                  <td>
+                    {peso(
+                      booking.estimated_total ||
+                        0
+                    )}
 
-                  <strong>
-                    {peso(paid)}
-                  </strong>
-                </div>
+                    <br />
 
-                <div>
-                  <span className="admin-label">
-                    Remaining
-                  </span>
+                    <span className="muted">
+                      Paid:{" "}
+                      {peso(
+                        booking.down_payment ||
+                          0
+                      )}
+                    </span>
+                  </td>
 
-                  <strong>
-                    {peso(remaining)}
-                  </strong>
-                </div>
-              </div>
+                  <td>
+                    <div
+                      className="actions"
+                      style={{
+                        flexWrap:
+                          "wrap",
+                      }}
+                    >
+                      <Link
+                        className="btn small secondary"
+                        href={`/admin/bookings/${booking.id}`}
+                      >
+                        VIEW
+                      </Link>
 
-              <div className="admin-booking-actions">
-                <Link
-                  href={`/admin/bookings/${booking.id}`}
-                  className="btn secondary small"
-                >
-                  Manage booking
-                </Link>
+                      <BookingActions
+                        id={
+                          booking.id
+                        }
+                        status={
+                          booking.status
+                        }
+                      />
+                    </div>
 
-                <BookingActions
-                  id={booking.id}
-                  status={booking.status}
-                />
-              </div>
-            </article>
-          );
-        })}
+                    <PaymentLinkActions
+                      token={
+                        booking.access_token
+                      }
+                      status={
+                        booking.status
+                      }
+                    />
+                  </td>
+                </tr>
+              )
+            )}
+          </tbody>
+        </table>
 
-        {!bookings.length && (
-          <div className="card empty">
+        {!data?.length && (
+          <div className="empty">
             No bookings yet.
           </div>
         )}

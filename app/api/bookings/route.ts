@@ -12,6 +12,10 @@ import {
   sanitizeFilename,
 } from "@/lib/utils";
 
+import {
+  notifyNewBooking,
+} from "@/lib/notifications";
+
 const MAX_INSPIRATION_FILES = 8;
 const MAX_IMAGE_MB = 8;
 const MAX_STUDENT_FILE_MB = 8;
@@ -1829,17 +1833,29 @@ export async function PATCH(
       data: booking,
       error:
         bookingError,
-    } =
-      await db
-        .from("bookings")
-        .select(
-          "id,status"
-        )
-        .eq(
-          "access_token",
-          token
-        )
-        .single();
+    } = await db
+      .from("bookings")
+      .select(
+        `
+        id,
+        status,
+        reference_code,
+        access_token,
+        customer_name,
+        mobile_number,
+        social_handle,
+        preferred_date,
+        preferred_time,
+        estimated_total,
+        removal,
+        notes
+        `
+      )
+      .eq(
+        "access_token",
+        token
+      )
+      .single();
 
     if (
       bookingError ||
@@ -1873,20 +1889,19 @@ export async function PATCH(
 
     const {
       error,
-    } =
-      await db
-        .from("bookings")
-        .update({
-          status:
-            "pending",
+    } = await db
+      .from("bookings")
+      .update({
+        status:
+          "pending",
 
-          submitted_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          booking.id
-        );
+        submitted_at:
+          new Date().toISOString(),
+      })
+      .eq(
+        "id",
+        booking.id
+      );
 
     if (error) {
       return NextResponse.json(
@@ -1898,6 +1913,47 @@ export async function PATCH(
           status: 500,
         }
       );
+    }
+
+    const {
+      data: bookingServices,
+      error:
+        bookingServicesError,
+    } = await db
+      .from(
+        "booking_services"
+      )
+      .select(
+        "service_name,variation_name,price"
+      )
+      .eq(
+        "booking_id",
+        booking.id
+      );
+
+    if (
+      bookingServicesError
+    ) {
+      console.error(
+        "Unable to load booking services for notification:",
+        bookingServicesError
+      );
+    } else {
+      try {
+        await notifyNewBooking({
+          booking,
+          services:
+            bookingServices ||
+            [],
+        });
+      } catch (
+        notificationError
+      ) {
+        console.error(
+          "New booking notification failed:",
+          notificationError
+        );
+      }
     }
 
     return NextResponse.json({

@@ -1,270 +1,164 @@
-export const dynamic = "force-dynamic";
+export const dynamic =
+  "force-dynamic";
 
 import Link from "next/link";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import {
+  supabaseAdmin,
+} from "@/lib/supabase-admin";
 
-export default async function AdminDashboard() {
-  const db = supabaseAdmin();
+export default async function Admin() {
+  const db =
+    supabaseAdmin();
 
-  const [
-    pending,
-    approved,
-    paymentSubmitted,
-    confirmed,
-    completed,
-    pendingReviews,
-  ] = await Promise.all([
-    db
-      .from("bookings")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("status", "pending"),
-
-    db
-      .from("bookings")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("status", "approved"),
-
-    db
-      .from("bookings")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("status", "payment_submitted"),
-
-    db
-      .from("bookings")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("status", "confirmed"),
-
-    db
-      .from("bookings")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("status", "completed"),
-
-    db
-      .from("reviews")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("status", "pending"),
-  ]);
-
-  const stats = [
-    {
-      label: "Pending requests",
-      value: pending.count || 0,
-      href: "/admin/bookings",
-    },
-    {
-      label: "Approved",
-      value: approved.count || 0,
-      href: "/admin/bookings",
-    },
-    {
-      label: "Payments to verify",
-      value: paymentSubmitted.count || 0,
-      href: "/admin/payments",
-    },
-    {
-      label: "Confirmed",
-      value: confirmed.count || 0,
-      href: "/admin/bookings",
-    },
-    {
-      label: "Completed",
-      value: completed.count || 0,
-      href: "/admin/bookings",
-    },
+  const statuses = [
+    "pending",
+    "approved",
+    "payment_submitted",
+    "confirmed",
+    "completed",
   ];
 
+  const counts =
+    await Promise.all(
+      statuses.map(
+        (
+          status: string
+        ) =>
+          db
+            .from("bookings")
+            .select(
+              "id",
+              {
+                count:
+                  "exact",
+                head: true,
+              }
+            )
+            .eq(
+              "status",
+              status
+            )
+      )
+    );
+
+  const {
+    count: reviewCount,
+  } =
+    await db
+      .from("reviews")
+      .select(
+        "id",
+        {
+          count:
+            "exact",
+          head: true,
+        }
+      )
+      .eq(
+        "status",
+        "pending"
+      );
+
   return (
-    <div className="dashboard-page">
-      <header className="admin-page-header">
+    <>
+      <div className="section-head">
         <div>
           <div className="kicker">
-            Owner dashboard
+            Nailtech
           </div>
 
           <h1 className="serif">
-            Good day ♡
+            Dashboard
           </h1>
 
           <p className="muted">
-            Keep an eye on bookings, payments, and
-            your studio schedule.
+            Manage bookings, payments,
+            availability, services, promos,
+            and reviews from one place.
           </p>
         </div>
-      </header>
+      </div>
 
-      <section className="admin-stats">
-        {stats.map((stat) => (
-          <Link
-            href={stat.href}
-            className="admin-stat-card"
-            key={stat.label}
-          >
-            <span>{stat.label}</span>
+      <div className="stat-grid">
+        {[
+          "Pending requests",
+          "Approved",
+          "Payments waiting",
+          "Confirmed",
+          "Completed",
+        ].map(
+          (
+            label: string,
+            index: number
+          ) => (
+            <div
+              className="card stat"
+              key={
+                label
+              }
+            >
+              <div className="muted">
+                {label}
+              </div>
 
-            <strong>{stat.value}</strong>
+              <strong>
+                {counts[index]
+                  ?.count ??
+                  0}
+              </strong>
+            </div>
+          )
+        )}
+      </div>
 
-            <small>
-              View details →
-            </small>
-          </Link>
-        ))}
-      </section>
+      <div
+        className="grid"
+        style={{
+          marginTop: 20,
+        }}
+      >
+        <div className="card">
+          <h3>
+            New reviews
+          </h3>
 
-      <section className="admin-dashboard-grid">
-        <div className="card admin-dashboard-card">
-          <div className="kicker">
-            Reviews
-          </div>
-
-          <h2 className="serif">
-            Review queue
-          </h2>
-
-          <p className="dashboard-number">
-            {pendingReviews.count || 0}
-          </p>
+          <strong>
+            {reviewCount ??
+              0}
+          </strong>
 
           <p className="muted">
-            Reviews waiting for your approval.
+            Pending moderation
           </p>
 
           <Link
+            className="btn small secondary"
             href="/admin/reviews"
-            className="btn small"
           >
-            Open reviews
+            Review queue
           </Link>
         </div>
 
-        <div className="card admin-dashboard-card">
-          <div className="kicker">
-            Schedule
-          </div>
-
-          <h2 className="serif">
-            Availability
-          </h2>
+        <div className="card">
+          <h3>
+            Nailtech approval rule
+          </h3>
 
           <p className="muted">
-            Manage your normal working hours,
-            semester schedule, extra openings, and
-            blocked time.
+            A submitted request remains
+            pending until the Nailtech
+            explicitly approves or rejects
+            it.
           </p>
 
           <Link
-            href="/admin/calendar"
             className="btn small"
+            href="/admin/bookings"
           >
-            Manage calendar
+            Open bookings
           </Link>
         </div>
-
-        <div className="card admin-dashboard-card">
-          <div className="kicker">
-            Services
-          </div>
-
-          <h2 className="serif">
-            Your menu
-          </h2>
-
-          <p className="muted">
-            Update service names, prices, duration,
-            and variations.
-          </p>
-
-          <Link
-            href="/admin/services"
-            className="btn small"
-          >
-            Manage services
-          </Link>
-        </div>
-
-        <div className="card admin-dashboard-card">
-          <div className="kicker">
-            Promotions
-          </div>
-
-          <h2 className="serif">
-            Promo offers
-          </h2>
-
-          <p className="muted">
-            Create, edit, activate, or remove your
-            promotions.
-          </p>
-
-          <Link
-            href="/admin/promos"
-            className="btn small"
-          >
-            Manage promos
-          </Link>
-        </div>
-
-        <div className="card admin-dashboard-card">
-          <div className="kicker">
-            Payments
-          </div>
-
-          <h2 className="serif">
-            Payment verification
-          </h2>
-
-          <p className="muted">
-            Review payment submissions and verify
-            customer payment proof.
-          </p>
-
-          <Link
-            href="/admin/payments"
-            className="btn small"
-          >
-            Open payments
-          </Link>
-        </div>
-
-        <div className="card admin-dashboard-card">
-          <div className="kicker">
-            Settings
-          </div>
-
-          <h2 className="serif">
-            Studio settings
-          </h2>
-
-          <p className="muted">
-            Update payment details, QR codes, contact
-            information, and studio policies.
-          </p>
-
-          <Link
-            href="/admin/settings"
-            className="btn small"
-          >
-            Open settings
-          </Link>
-        </div>
-      </section>
-    </div>
+      </div>
+    </>
   );
 }

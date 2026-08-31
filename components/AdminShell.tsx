@@ -1,96 +1,67 @@
-"use client";
-
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutButton";
-
-const navigation = [
-  {
-    href: "/admin",
-    label: "Dashboard",
-  },
-  {
-    href: "/admin/bookings",
-    label: "Bookings",
-  },
-  {
-    href: "/admin/calendar",
-    label: "Calendar",
-  },
-  {
-    href: "/admin/services",
-    label: "Services",
-  },
-  {
-    href: "/admin/promos",
-    label: "Promos",
-  },
-  {
-    href: "/admin/payments",
-    label: "Payments",
-  },
-  {
-    href: "/admin/reviews",
-    label: "Reviews",
-  },
-  {
-    href: "/admin/settings",
-    label: "Settings",
-  },
-];
 
 export default function AdminShell({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-
   return (
     <div className="admin-shell">
       <aside className="admin-side">
-        <div className="admin-brand">
-          <div className="brand">
-            The Claw Lab MNL
-          </div>
-
-          <div className="admin-subtitle">
-            Owner dashboard
-          </div>
+        <div className="brand">
+          The Claw Lab MNL
         </div>
 
-        <nav className="admin-nav">
-          {navigation.map((item) => {
-            const active =
-              item.href === "/admin"
-                ? pathname === "/admin"
-                : pathname.startsWith(item.href);
+        <div className="muted">
+          Nailtech dashboard
+        </div>
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={
-                  active
-                    ? "admin-nav-link active"
-                    : "admin-nav-link"
-                }
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav>
+          <Link href="/admin">
+            Dashboard
+          </Link>
+
+          <Link href="/admin/bookings">
+            Bookings
+          </Link>
+
+          <Link href="/admin/calendar">
+            Calendar
+          </Link>
+
+          <Link href="/admin/services">
+            Services
+          </Link>
+
+          <Link href="/admin/promos">
+            Promos
+          </Link>
+
+          <Link href="/admin/payments">
+            Payments
+          </Link>
+
+          <Link href="/admin/reviews">
+            Reviews
+          </Link>
+
+          <Link href="/admin/settings">
+            Payment & Settings
+          </Link>
         </nav>
 
-        <div className="admin-logout">
+        <div
+          style={{
+            marginTop: 20,
+          }}
+        >
           <LogoutButton />
         </div>
       </aside>
 
       <main className="admin-main">
-        <div className="admin-main-inner">
-          {children}
-        </div>
+        {children}
       </main>
     </div>
   );
