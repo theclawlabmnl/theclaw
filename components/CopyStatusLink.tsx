@@ -1,43 +1,23 @@
 "use client";
 
-import {
-  useState,
-} from "react";
+import { useState } from "react";
 
 export default function CopyStatusLink() {
-  const [
-    copied,
-    setCopied,
-  ] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const copyLink =
-    async () => {
-      try {
-        await navigator.clipboard.writeText(
-          window.location.href
-        );
-
-        setCopied(true);
-
-        setTimeout(() => {
-          setCopied(false);
-        }, 2200);
-      } catch {
-        alert(
-          "Unable to copy automatically. Please copy the link from your browser address bar."
-        );
-      }
-    };
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2200);
+    } catch {
+      window.prompt("Copy this status link:", window.location.href);
+    }
+  };
 
   return (
-    <button
-      type="button"
-      className="btn secondary"
-      onClick={copyLink}
-    >
-      {copied
-        ? "Link copied ✓"
-        : "Copy status link"}
+    <button type="button" className="btn secondary" onClick={copy}>
+      {copied ? "Link copied ✓" : "Copy status link"}
     </button>
   );
 }

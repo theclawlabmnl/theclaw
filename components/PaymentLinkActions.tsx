@@ -2,6 +2,26 @@
 
 import { useState } from "react";
 
+function fallbackCopy(value: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+
+  document.body.removeChild(textarea);
+  return copied;
+}
+
 export default function PaymentLinkActions({
   token,
   status,
@@ -9,115 +29,114 @@ export default function PaymentLinkActions({
   token: string;
   status: string;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Payment is only available once the booking is approved.
   if (status !== "approved") {
     return null;
   }
 
-  const getPaymentLink = () =>
-    `${window.location.origin}/payment/${token}`;
+  const getLink = () =>
+    new URL(`/payment/${token}`, window.location.origin).toString();
 
-  const copyPaymentLink = async () => {
-    const link = getPaymentLink();
+  const flash = (text: string) => {
+    setMessage(text);
+    window.setTimeout(() => setMessage(""), 2200);
+  };
+
+  const copyLink = async () => {
+    const link = getLink();
+    let copied = false;
 
     try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-
-      window.setTimeout(() => {
-        setCopied(false);
-      }, 2200);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        copied = true;
+      }
     } catch {
-      window.prompt(
-        "Copy this payment link:",
-        link
-      );
+      copied = false;
+    }
+
+    if (!copied) {
+      copied = fallbackCopy(link);
+    }
+
+    if (copied) {
+      flash("Payment link copied ✓");
+    } else {
+      window.prompt("Copy this payment link:", link);
     }
   };
 
-  const sharePaymentLink = async () => {
-    const link = getPaymentLink();
+  const shareLink = async () => {
+    const link = getLink();
 
+    setBusy(true);
     try {
-      setBusy(true);
-
-      if (
-        typeof navigator.share === "function"
-      ) {
+      if (navigator.share) {
         await navigator.share({
-          title:
-            "The Claw Lab MNL — Payment Link",
-          text:
-            "Here is your The Claw Lab MNL payment link:",
+          title: "The Claw Lab MNL · Payment Link",
+          text: "Here is your payment link from The Claw Lab MNL:",
           url: link,
         });
-
         return;
       }
 
-      await navigator.clipboard.writeText(
-        link
-      );
+      let copied = false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(link);
+          copied = true;
+        }
+      } catch {
+        copied = false;
+      }
 
-      setCopied(true);
-
-      window.setTimeout(() => {
-        setCopied(false);
-      }, 2200);
+      if (!copied) copied = fallbackCopy(link);
+      if (copied) flash("Payment link copied ✓");
+      else window.prompt("Copy this payment link:", link);
     } catch {
-      // User may simply cancel the share sheet.
+      // The share sheet was cancelled or unavailable.
     } finally {
       setBusy(false);
     }
   };
 
-  const openMessenger = () => {
-    window.open(
-      "https://m.me/theclawlabmnl",
-      "_blank",
-      "noopener,noreferrer"
-    );
+  const openBusinessSuite = () => {
+    window.location.assign("https://business.facebook.com/latest/inbox/all");
   };
 
+  const link = getLink();
+
   return (
-    <div
-      className="actions"
-      style={{
-        marginTop: 8,
-        flexWrap: "wrap",
-      }}
-    >
-      <button
-        type="button"
-        className="btn small secondary"
-        onClick={copyPaymentLink}
-      >
-        {copied
-          ? "PAYMENT LINK COPIED ✓"
-          : "COPY PAYMENT LINK"}
-      </button>
+    <div className="payment-link-box">
+      <div className="kicker">Customer payment link</div>
+      <div className="payment-link-row">
+        <input
+          aria-label="Customer payment link"
+          value={link}
+          readOnly
+          onFocus={(event) => event.currentTarget.select()}
+        />
+        <button type="button" className="btn small" onClick={copyLink}>
+          Copy
+        </button>
+      </div>
 
-      <button
-        type="button"
-        className="btn small secondary"
-        disabled={busy}
-        onClick={sharePaymentLink}
-      >
-        {busy
-          ? "SHARING…"
-          : "SHARE PAYMENT LINK"}
-      </button>
+      <div className="actions payment-link-actions">
+        <button type="button" className="btn small secondary" onClick={shareLink} disabled={busy}>
+          {busy ? "Sharing…" : "Share"}
+        </button>
+        <button
+          type="button"
+          className="btn small secondary"
+          onClick={openBusinessSuite}
+        >
+          Business Suite
+        </button>
+      </div>
 
-      <button
-        type="button"
-        className="btn small secondary"
-        onClick={openMessenger}
-      >
-        OPEN MESSENGER
-      </button>
+      {message && <div className="payment-link-message">{message}</div>}
     </div>
   );
 }

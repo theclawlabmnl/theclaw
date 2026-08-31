@@ -3,167 +3,76 @@ export const dynamic = "force-dynamic";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import PaymentQueue from "@/components/PaymentQueue";
 
-type PaymentRow = {
-  id: string;
-  booking_id: string;
-  method: string;
-  amount: number;
-  status: string;
-  verified_at: string | null;
-  created_at: string;
-  bookings:
-    | {
-        reference_code: string;
-        customer_name: string;
-        preferred_date: string;
-        preferred_time: string;
-        access_token: string;
-      }
-    | null;
-  proof_path?: string | null;
-};
-
 export default async function Payments() {
   const db = supabaseAdmin();
 
-  /*
-   * Get payments and their booking information.
-   * Do NOT embed payment_proofs here because
-   * payment_proofs is related to bookings, not payments.
-   */
-  const {
-    data: payments,
-    error: paymentsError,
-  } = await db
+  const { data: payments, error } = await db
     .from("payments")
     .select(
-      `
-      id,
-      booking_id,
-      method,
-      amount,
-      status,
-      verified_at,
-      created_at,
-      bookings(
-        reference_code,
-        customer_name,
-        preferred_date,
-        preferred_time,
-        access_token
-      )
-      `
+      "id,booking_id,method,amount,status,verified_at,created_at,bookings(reference_code,customer_name,preferred_date,preferred_time,access_token)"
     )
-    .order("created_at", {
-      ascending: false,
-    });
+    .order("created_at", { ascending: false });
 
-  if (paymentsError) {
-    console.error(
-      "Payments query error:",
-      paymentsError
-    );
-  }
+  if (error) console.error("Payments page query error:", error);
 
-  const paymentRows =
-    (payments || []) as unknown as PaymentRow[];
-
-  /*
-   * Get payment proofs separately using booking_id.
-   */
-  const bookingIds = Array.from(
-    new Set(
-      paymentRows
-        .map(
-          (payment) =>
-            payment.booking_id
-        )
-        .filter(Boolean)
-    )
-  );
-
-  let proofMap =
-    new Map<string, string>();
+  const rows = payments || [];
+  const bookingIds = Array.from(new Set(rows.map((payment) => payment.booking_id).filter(Boolean)));
+  const proofMap = new Map<string, string>();
 
   if (bookingIds.length) {
-    const {
-      data: proofs,
-      error: proofsError,
-    } = await db
+    const { data: proofs, error: proofError } = await db
       .from("payment_proofs")
-      .select(
-        "booking_id,path,created_at"
-      )
-      .in(
-        "booking_id",
-        bookingIds
-      )
-      .order("created_at", {
-        ascending: false,
-      });
+      .select("booking_id,bucket,path,created_at")
+      .in("booking_id", bookingIds)
+      .order("created_at", { ascending: false });
 
-    if (proofsError) {
-      console.error(
-        "Payment proofs query error:",
-        proofsError
-      );
+    if (proofError) {
+      console.error("Payment proofs query error:", proofError);
     } else {
-      /*
-       * Keep the newest proof for each booking.
-       */
-      proofMap =
-        new Map<string, string>();
-
-      for (
-        const proof of proofs || []
-      ) {
-        if (
-          !proofMap.has(
-            proof.booking_id
-          )
-        ) {
-          proofMap.set(
-            proof.booking_id,
-            proof.path
-          );
+      const latest = new Map<string, { bucket: string; path: string }>();
+      for (const proof of proofs || []) {
+        if (!latest.has(proof.booking_id)) {
+          latest.set(proof.booking_id, {
+            bucket: proof.bucket || "payment-proofs",
+            path: proof.path,
+          });
         }
+      }
+
+      for (const [bookingId, proof] of latest) {
+        const { data: signed } = await db.storage
+          .from(proof.bucket)
+          .createSignedUrl(proof.path, 60 * 60 * 6);
+        if (signed?.signedUrl) proofMap.set(bookingId, signed.signedUrl);
       }
     }
   }
 
-  const rows =
-    paymentRows.map(
-      (payment) => ({
-        ...payment,
-        proof_path:
-          proofMap.get(
-            payment.booking_id
-          ) || null,
-      })
-    );
+  const enriched = rows.map((payment) => ({
+    ...payment,
+    proof_url: proofMap.get(payment.booking_id) || null,
+  }));
+
+  const waiting = enriched.filter((payment) => payment.status === "submitted").length;
 
   return (
-    <>
-      <div className="section-head">
+    <div className="admin-page">
+      <div className="admin-page-head">
         <div>
-          <div className="kicker">
-            Money, manually
-          </div>
-
-          <h1 className="serif">
-            Payments
-          </h1>
-
-          <p className="muted">
-            Review submitted payment proof
-            and verify customer payments.
+          <div className="kicker">Money, manually</div>
+          <h1 className="serif">Payments</h1>
+          <p className="muted admin-lead">
+            Review payment proof privately and verify submitted payments.
           </p>
         </div>
+        {waiting > 0 && (
+          <div className="admin-notice-badge">
+            {waiting} payment{waiting === 1 ? "" : "s"} waiting for verification
+          </div>
+        )}
       </div>
 
-      <PaymentQueue
-        payments={rows}
-      />
-    </>
+      <PaymentQueue payments={enriched} />
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import AdminNav from "./AdminNav";
 import LogoutButton from "./LogoutButton";
 
 export default function AdminShell({
@@ -7,61 +7,26 @@ export default function AdminShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="admin-shell">
-      <aside className="admin-side">
-        <div className="brand">
-          The Claw Lab MNL
+    <div className="admin-app-shell">
+      <header className="admin-topbar">
+        <div className="admin-topbar-inner">
+          <div className="admin-brand-lockup">
+            <div className="admin-brand-name">The Claw Lab MNL</div>
+            <div className="admin-brand-subtitle">Nailtech dashboard</div>
+          </div>
+
+          <AdminNav />
+
+          <div className="admin-topbar-action">
+            <LogoutButton />
+          </div>
         </div>
+      </header>
 
-        <div className="muted">
-          Nailtech dashboard
+      <main className="admin-main admin-main-clean">
+        <div className="admin-content admin-content-clean">
+          {children}
         </div>
-
-        <nav>
-          <Link href="/admin">
-            Dashboard
-          </Link>
-
-          <Link href="/admin/bookings">
-            Bookings
-          </Link>
-
-          <Link href="/admin/calendar">
-            Calendar
-          </Link>
-
-          <Link href="/admin/services">
-            Services
-          </Link>
-
-          <Link href="/admin/promos">
-            Promos
-          </Link>
-
-          <Link href="/admin/payments">
-            Payments
-          </Link>
-
-          <Link href="/admin/reviews">
-            Reviews
-          </Link>
-
-          <Link href="/admin/settings">
-            Payment & Settings
-          </Link>
-        </nav>
-
-        <div
-          style={{
-            marginTop: 20,
-          }}
-        >
-          <LogoutButton />
-        </div>
-      </aside>
-
-      <main className="admin-main">
-        {children}
       </main>
     </div>
   );
