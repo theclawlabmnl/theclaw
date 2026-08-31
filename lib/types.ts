@@ -10,7 +10,7 @@ export type Service = {
 };
 export type ServiceVariation = {
   id: string;
-  service_id: string;
+  service_id?: string;
   name: string;
   price_delta: number;
   duration_delta_minutes: number;
