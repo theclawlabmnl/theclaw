@@ -2,143 +2,113 @@ import {
   NextRequest,
   NextResponse,
 } from "next/server";
-
 import {
   supabaseAdmin,
 } from "@/lib/supabase-admin";
 
-function parseDate(
-  value: string
-) {
-  const parts =
-    value.split("-").map(Number);
+type DayAvailability = {
+  date: string;
+  available: boolean;
+  slots: string[];
+};
 
-  if (
-    parts.length !== 3 ||
-    parts.some(
-      (part) =>
-        !Number.isFinite(part)
-    )
-  ) {
-    return null;
-  }
-
-  const [
-    year,
-    month,
-    day,
-  ] = parts;
-
-  const date =
-    new Date(
-      Date.UTC(
-        year,
-        month - 1,
-        day
-      )
-    );
-
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return date;
-}
-
-function getDayOfWeek(
-  value: string
-) {
-  const date =
-    parseDate(value);
-
-  if (!date) {
-    return -1;
-  }
-
-  return date.getUTCDay();
-}
-
-function makeDates(
-  from: string,
-  to: string
-) {
-  const start =
-    parseDate(from);
-
-  const end =
-    parseDate(to);
-
-  if (!start || !end) {
-    return [];
-  }
-
-  const result: string[] = [];
-
-  for (
-    const current =
-      new Date(start);
-    current <= end;
-    current.setUTCDate(
-      current.getUTCDate() + 1
-    )
-  ) {
-    result.push(
-      current
-        .toISOString()
-        .slice(0, 10)
-    );
-  }
-
-  return result;
-}
-
-function timeToMinutes(
+function toMinutes(
   value: string | null | undefined
-) {
+): number | null {
   if (!value) {
     return null;
   }
 
-  const parts =
-    String(value)
-      .slice(0, 5)
-      .split(":")
-      .map(Number);
+  const [
+    hoursRaw,
+    minutesRaw,
+  ] = String(value)
+    .slice(0, 5)
+    .split(":");
+
+  const hours =
+    Number(hoursRaw);
+
+  const minutes =
+    Number(minutesRaw);
 
   if (
-    parts.length !== 2 ||
-    !Number.isFinite(parts[0]) ||
-    !Number.isFinite(parts[1])
+    !Number.isFinite(hours) ||
+    !Number.isFinite(minutes)
   ) {
     return null;
   }
 
   return (
-    parts[0] * 60 +
-    parts[1]
+    hours * 60 +
+    minutes
   );
 }
 
-function minutesToTime(
+function formatTime(
   minutes: number
 ) {
-  const hours =
-    Math.floor(minutes / 60);
+  const hours24 =
+    Math.floor(
+      minutes / 60
+    );
 
   const mins =
     minutes % 60;
 
-  return `${String(hours).padStart(
+  const suffix =
+    hours24 >= 12
+      ? "PM"
+      : "AM";
+
+  const hours12 =
+    hours24 % 12 || 12;
+
+  return `${hours12}:${String(
+    mins
+  ).padStart(
     2,
     "0"
-  )}:${String(mins).padStart(
-    2,
-    "0"
-  )}`;
+  )} ${suffix}`;
+}
+
+function dateKey(
+  date: Date
+) {
+  const year =
+    date.getUTCFullYear();
+
+  const month =
+    String(
+      date.getUTCMonth() + 1
+    ).padStart(2, "0");
+
+  const day =
+    String(
+      date.getUTCDate()
+    ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getDayOfWeek(
+  value: string
+) {
+  const [
+    year,
+    month,
+    day,
+  ] = value
+    .split("-")
+    .map(Number);
+
+  return new Date(
+    Date.UTC(
+      year,
+      month - 1,
+      day
+    )
+  ).getUTCDay();
 }
 
 function overlaps(
@@ -153,96 +123,30 @@ function overlaps(
   );
 }
 
-function subtractBlockedTime(
-  windows: Array<
-    [number, number]
-  >,
-  blockStart: number,
-  blockEnd: number
-) {
-  const result: Array<
-    [number, number]
-  > = [];
+type Window = [
+  number,
+  number
+];
 
-  for (const [
-    start,
-    end,
-  ] of windows) {
-    if (
-      blockEnd <= start ||
-      blockStart >= end
-    ) {
-      result.push([
-        start,
-        end,
-      ]);
-      continue;
-    }
+function buildWindows(
+  rule: any,
+  overrides: any[]
+): Window[] {
+  let windows: Window[] =
+    [];
 
-    if (
-      blockStart > start
-    ) {
-      result.push([
-        start,
-        Math.min(
-          blockStart,
-          end
-        ),
-      ]);
-    }
-
-    if (
-      blockEnd < end
-    ) {
-      result.push([
-        Math.max(
-          blockEnd,
-          start
-        ),
-        end,
-      ]);
-    }
-  }
-
-  return result.filter(
-    ([start, end]) =>
-      end > start
-  );
-}
-
-function buildSlots({
-  rule,
-  overrides,
-  bookings,
-  duration,
-}: {
-  rule: any;
-  overrides: any[];
-  bookings: Array<{
-    preferred_time: string;
-    duration_minutes: number;
-  }>;
-  duration: number;
-}) {
-  let windows: Array<
-    [number, number]
-  > = [];
-
-  /*
-   * NORMAL WORKING HOURS
-   */
   if (
     rule?.is_available &&
     rule.start_time &&
     rule.end_time
   ) {
     const start =
-      timeToMinutes(
+      toMinutes(
         rule.start_time
       );
 
     const end =
-      timeToMinutes(
+      toMinutes(
         rule.end_time
       );
 
@@ -261,285 +165,191 @@ function buildSlots({
   /*
    * OPEN EXTRA TIME
    */
-  for (const override of overrides) {
-    if (
-      override.kind !==
-      "open"
-    ) {
-      continue;
+  overrides.forEach(
+    (override) => {
+      if (
+        override.kind !==
+        "open"
+      ) {
+        return;
+      }
+
+      const start =
+        toMinutes(
+          override.start_time
+        );
+
+      const end =
+        toMinutes(
+          override.end_time
+        );
+
+      if (
+        start !== null &&
+        end !== null &&
+        end > start
+      ) {
+        windows.push([
+          start,
+          end,
+        ]);
+      }
     }
-
-    const start =
-      timeToMinutes(
-        override.start_time
-      );
-
-    const end =
-      timeToMinutes(
-        override.end_time
-      );
-
-    if (
-      start !== null &&
-      end !== null &&
-      end > start
-    ) {
-      windows.push([
-        start,
-        end,
-      ]);
-    }
-  }
+  );
 
   /*
    * BLOCK TIME
    */
-  for (const override of overrides) {
-    if (
-      override.kind !==
-      "block"
-    ) {
-      continue;
-    }
+  overrides.forEach(
+    (override) => {
+      if (
+        override.kind !==
+        "block"
+      ) {
+        return;
+      }
 
-    const start =
-      timeToMinutes(
-        override.start_time
-      );
-
-    const end =
-      timeToMinutes(
-        override.end_time
-      );
-
-    if (
-      start !== null &&
-      end !== null &&
-      end > start
-    ) {
-      windows =
-        subtractBlockedTime(
-          windows,
-          start,
-          end
+      const blockStart =
+        toMinutes(
+          override.start_time
         );
+
+      const blockEnd =
+        toMinutes(
+          override.end_time
+        );
+
+      if (
+        blockStart ===
+          null ||
+        blockEnd ===
+          null ||
+        blockEnd <=
+          blockStart
+      ) {
+        return;
+      }
+
+      const nextWindows: Window[] =
+        [];
+
+      windows.forEach(
+        ([
+          start,
+          end,
+        ]) => {
+          if (
+            blockEnd <=
+              start ||
+            blockStart >=
+              end
+          ) {
+            nextWindows.push([
+              start,
+              end,
+            ]);
+
+            return;
+          }
+
+          if (
+            blockStart >
+            start
+          ) {
+            nextWindows.push([
+              start,
+              Math.min(
+                blockStart,
+                end
+              ),
+            ]);
+          }
+
+          if (
+            blockEnd <
+            end
+          ) {
+            nextWindows.push([
+              Math.max(
+                blockEnd,
+                start
+              ),
+              end,
+            ]);
+          }
+        }
+      );
+
+      windows =
+        nextWindows;
     }
-  }
+  );
 
   /*
    * Merge overlapping windows.
    */
-  windows.sort(
-    (a, b) =>
-      a[0] - b[0]
-  );
+  return windows
+    .filter(
+      ([start, end]) =>
+        end > start
+    )
+    .sort(
+      (a, b) =>
+        a[0] - b[0]
+    )
+    .reduce(
+      (
+        merged: Window[],
+        window
+      ) => {
+        const last =
+          merged[
+            merged.length -
+              1
+          ];
 
-  const merged: Array<
-    [number, number]
-  > = [];
+        if (
+          last &&
+          window[0] <=
+            last[1]
+        ) {
+          last[1] =
+            Math.max(
+              last[1],
+              window[1]
+            );
+        } else {
+          merged.push([
+            window[0],
+            window[1],
+          ]);
+        }
 
-  for (const window of windows) {
-    const previous =
-      merged[
-        merged.length - 1
-      ];
-
-    if (
-      previous &&
-      window[0] <=
-        previous[1]
-    ) {
-      previous[1] =
-        Math.max(
-          previous[1],
-          window[1]
-        );
-    } else {
-      merged.push([
-        window[0],
-        window[1],
-      ]);
-    }
-  }
-
-  if (!merged.length) {
-    return [];
-  }
-
-  /*
-   * Existing booked appointments.
-   */
-  const booked =
-    bookings.map(
-      (booking) => {
-        const start =
-          timeToMinutes(
-            booking.preferred_time
-          );
-
-        const length =
-          Math.max(
-            30,
-            Number(
-              booking.duration_minutes
-            ) || 60
-          );
-
-        return {
-          start:
-            start ?? 0,
-
-          end:
-            (start ?? 0) +
-            length,
-        };
-      }
+        return merged;
+      },
+      []
     );
-
-  const available =
-    new Set<string>();
-
-  /*
-   * Slots every 30 minutes.
-   */
-  for (const [
-    windowStart,
-    windowEnd,
-  ] of merged) {
-    for (
-      let start =
-        windowStart;
-
-      start + duration <=
-        windowEnd;
-
-      start += 30
-    ) {
-      const end =
-        start +
-        duration;
-
-      const conflict =
-        booked.some(
-          (booking) =>
-            overlaps(
-              start,
-              end,
-              booking.start,
-              booking.end
-            )
-        );
-
-      if (
-        !conflict
-      ) {
-        available.add(
-          minutesToTime(
-            start
-          )
-        );
-      }
-    }
-  }
-
-  return Array.from(
-    available
-  ).sort();
 }
 
-export async function GET(
-  request: NextRequest
+async function getDataForRange(
+  db: ReturnType<
+    typeof supabaseAdmin
+  >,
+  startDate: string,
+  endDate: string
 ) {
-  try {
-    const params =
-      new URL(
-        request.url
-      ).searchParams;
-
-    /*
-     * Supports BOTH:
-     *
-     * /api/availability?date=2026-08-31
-     *
-     * and:
-     *
-     * /api/availability?from=2026-08-01&to=2026-08-31&duration=60
-     */
-    const singleDate =
-      params.get(
-        "date"
-      );
-
-    const from =
-      params.get(
-        "from"
-      ) || singleDate;
-
-    const to =
-      params.get(
-        "to"
-      ) || singleDate;
-
-    const duration =
-      Math.max(
-        30,
-        Number(
-          params.get(
-            "duration"
-          ) || 60
-        )
-      );
-
-    if (
-      !from ||
-      !to
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Missing availability date.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    const dates =
-      makeDates(
-        from,
-        to
-      );
-
-    if (
-      !dates.length ||
-      dates.length > 62
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Invalid availability date range.",
-        },
-        {
-          status: 400,
-        }
-      );
-    }
-
-    const db =
-      supabaseAdmin();
-
-    const [
-      rulesResult,
-      overridesResult,
-      bookingsResult,
-    ] = await Promise.all([
+  const [
+    rulesResult,
+    overridesResult,
+    bookingsResult,
+  ] =
+    await Promise.all([
       db
         .from(
           "availability_rules"
         )
         .select(
-          "id,label,day_of_week,is_available,start_time,end_time,semester_name,active"
+          "day_of_week,is_available,start_time,end_time,active"
         )
         .eq(
           "active",
@@ -551,29 +361,31 @@ export async function GET(
           "availability_overrides"
         )
         .select(
-          "id,override_date,start_time,end_time,kind,note"
+          "override_date,start_time,end_time,kind"
         )
         .gte(
           "override_date",
-          from
+          startDate
         )
         .lte(
           "override_date",
-          to
+          endDate
         ),
 
       db
-        .from("bookings")
+        .from(
+          "bookings"
+        )
         .select(
-          "id,preferred_date,preferred_time"
+          "id,preferred_date,preferred_time,status"
         )
         .gte(
           "preferred_date",
-          from
+          startDate
         )
         .lte(
           "preferred_date",
-          to
+          endDate
         )
         .in(
           "status",
@@ -586,152 +398,482 @@ export async function GET(
         ),
     ]);
 
-    if (
-      rulesResult.error
-    ) {
-      throw rulesResult.error;
-    }
+  if (
+    rulesResult.error
+  ) {
+    throw rulesResult.error;
+  }
+
+  if (
+    overridesResult.error
+  ) {
+    throw overridesResult.error;
+  }
+
+  if (
+    bookingsResult.error
+  ) {
+    throw bookingsResult.error;
+  }
+
+  const bookings =
+    bookingsResult.data ||
+    [];
+
+  const bookingIds =
+    bookings.map(
+      (booking) =>
+        booking.id
+    );
+
+  let bookingServices:
+    Array<{
+      booking_id: string;
+      duration_minutes:
+        | number
+        | null;
+    }> = [];
+
+  if (
+    bookingIds.length
+  ) {
+    const result =
+      await db
+        .from(
+          "booking_services"
+        )
+        .select(
+          "booking_id,duration_minutes"
+        )
+        .in(
+          "booking_id",
+          bookingIds
+        );
 
     if (
-      overridesResult.error
+      result.error
     ) {
-      throw overridesResult.error;
+      throw result.error;
     }
 
-    if (
-      bookingsResult.error
-    ) {
-      throw bookingsResult.error;
-    }
+    bookingServices =
+      result.data || [];
+  }
 
-    const bookings =
-      bookingsResult.data ||
-      [];
+  const durationByBooking =
+    new Map<
+      string,
+      number
+    >();
 
-    const bookingIds =
-      bookings.map(
-        (booking) =>
-          booking.id
+  bookingServices.forEach(
+    (row) => {
+      durationByBooking.set(
+        row.booking_id,
+        (
+          durationByBooking.get(
+            row.booking_id
+          ) || 0
+        ) +
+          Number(
+            row.duration_minutes ||
+              0
+          )
       );
+    }
+  );
 
-    const durationMap =
-      new Map<
-        string,
-        number
-      >();
+  return {
+    rules:
+      rulesResult.data ||
+      [],
+    overrides:
+      overridesResult.data ||
+      [],
+    bookings,
+    durationByBooking,
+  };
+}
 
-    if (
-      bookingIds.length
-    ) {
-      const serviceResult =
-        await db
-          .from(
-            "booking_services"
-          )
-          .select(
-            "booking_id,duration_minutes"
-          )
-          .in(
-            "booking_id",
-            bookingIds
+function slotsForDate({
+  date,
+  rule,
+  overrides,
+  bookings,
+  durationByBooking,
+  duration,
+}: {
+  date: string;
+  rule: any;
+  overrides: any[];
+  bookings: any[];
+  durationByBooking: Map<
+    string,
+    number
+  >;
+  duration: number;
+}) {
+  const windows =
+    buildWindows(
+      rule,
+      overrides
+    );
+
+  const bookingsForDay =
+    bookings.filter(
+      (booking) =>
+        booking.preferred_date ===
+        date
+    );
+
+  const requiredDuration =
+    Math.max(
+      30,
+      duration
+    );
+
+  const slots: string[] =
+    [];
+
+  /*
+   * 30-minute increments keep
+   * extra availability such as
+   * 3:30 PM–8:00 PM usable.
+   */
+  windows.forEach(
+    ([
+      start,
+      end,
+    ]) => {
+      for (
+        let cursor =
+          start;
+        cursor +
+          requiredDuration <=
+          end;
+        cursor +=
+          30
+      ) {
+        const requestedEnd =
+          cursor +
+          requiredDuration;
+
+        const blocked =
+          bookingsForDay.some(
+            (booking) => {
+              const existingStart =
+                toMinutes(
+                  booking.preferred_time
+                );
+
+              if (
+                existingStart ===
+                null
+              ) {
+                return false;
+              }
+
+              const existingDuration =
+                Math.max(
+                  30,
+                  durationByBooking.get(
+                    booking.id
+                  ) || 60
+                );
+
+              const existingEnd =
+                existingStart +
+                existingDuration;
+
+              return overlaps(
+                cursor,
+                requestedEnd,
+                existingStart,
+                existingEnd
+              );
+            }
           );
 
-      if (
-        !serviceResult.error
-      ) {
-        for (
-          const item of
-            serviceResult.data ||
-            []
+        if (
+          !blocked
         ) {
-          const current =
-            durationMap.get(
-              item.booking_id
-            ) || 0;
-
-          durationMap.set(
-            item.booking_id,
-            current +
-              Math.max(
-                0,
-                Number(
-                  item.duration_minutes
-                ) || 0
-              )
+          slots.push(
+            formatTime(
+              cursor
+            )
           );
         }
       }
     }
+  );
 
-    const days: Record<
-      string,
-      string[]
-    > = {};
+  return slots.filter(
+    (
+      value,
+      index,
+      array
+    ) =>
+      array.indexOf(
+        value
+      ) === index
+  );
+}
 
-    for (const date of dates) {
+export async function GET(
+  request: NextRequest
+) {
+  try {
+    const db =
+      supabaseAdmin();
+
+    const url =
+      new URL(
+        request.url
+      );
+
+    const date =
+      url.searchParams.get(
+        "date"
+      );
+
+    const month =
+      url.searchParams.get(
+        "month"
+      );
+
+    const durationRaw =
+      Number(
+        url.searchParams.get(
+          "duration"
+        ) || 60
+      );
+
+    const duration =
+      Number.isFinite(
+        durationRaw
+      )
+        ? Math.max(
+            30,
+            durationRaw
+          )
+        : 60;
+
+    /*
+     * Backwards-compatible
+     * single-date response.
+     */
+    if (date) {
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          date
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Invalid date.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const {
+        rules,
+        overrides,
+        bookings,
+        durationByBooking,
+      } =
+        await getDataForRange(
+          db,
+          date,
+          date
+        );
+
       const dayOfWeek =
         getDayOfWeek(
           date
         );
 
       const rule =
-        (
-          rulesResult.data ||
-          []
-        ).find(
+        rules.find(
           (item) =>
-            Number(
-              item.day_of_week
-            ) ===
+            item.day_of_week ===
             dayOfWeek
-        ) || null;
+        ) ||
+        null;
 
-      const overrides =
-        (
-          overridesResult.data ||
-          []
-        ).filter(
+      const dateOverrides =
+        overrides.filter(
           (item) =>
             item.override_date ===
             date
         );
 
-      const dayBookings =
-        bookings
-          .filter(
+      const slots =
+        slotsForDate({
+          date,
+          rule,
+          overrides:
+            dateOverrides,
+          bookings,
+          durationByBooking,
+          duration,
+        });
+
+      return NextResponse.json({
+        rule,
+        overrides:
+          dateOverrides,
+        booked:
+          bookings.filter(
             (booking) =>
               booking.preferred_date ===
               date
-          )
-          .map(
-            (booking) => ({
-              preferred_time:
-                booking.preferred_time,
-
-              duration_minutes:
-                durationMap.get(
-                  booking.id
-                ) || 60,
-            })
-          );
-
-      days[date] =
-        buildSlots({
-          rule,
-          overrides,
-          bookings:
-            dayBookings,
-          duration,
-        });
+          ),
+        slots,
+        available:
+          slots.length >
+          0,
+      });
     }
 
     /*
-     * Return exactly the structure expected
-     * by the customer calendar.
+     * Monthly calendar response.
      */
+    if (!month) {
+      return NextResponse.json(
+        {
+          error:
+            "date or month required",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (
+      !/^\d{4}-\d{2}$/.test(
+        month
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid month.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const [
+      year,
+      monthNumber,
+    ] = month
+      .split("-")
+      .map(Number);
+
+    const start =
+      new Date(
+        Date.UTC(
+          year,
+          monthNumber - 1,
+          1
+        )
+      );
+
+    const end =
+      new Date(
+        Date.UTC(
+          year,
+          monthNumber,
+          0
+        )
+      );
+
+    const startDate =
+      dateKey(start);
+
+    const endDate =
+      dateKey(end);
+
+    const {
+      rules,
+      overrides,
+      bookings,
+      durationByBooking,
+    } =
+      await getDataForRange(
+        db,
+        startDate,
+        endDate
+      );
+
+    const days: Array<DayAvailability> =
+      [];
+
+    for (
+      let current = new Date(
+        start
+      );
+      current <=
+      end;
+      current.setUTCDate(
+        current.getUTCDate() +
+          1
+      )
+    ) {
+      const currentKey =
+        dateKey(
+          current
+        );
+
+      const dayOfWeek =
+        current.getUTCDay();
+
+      const rule =
+        rules.find(
+          (item) =>
+            item.day_of_week ===
+            dayOfWeek
+        ) ||
+        null;
+
+      const dateOverrides =
+        overrides.filter(
+          (item) =>
+            item.override_date ===
+            currentKey
+        );
+
+      const slots =
+        slotsForDate({
+          date:
+            currentKey,
+          rule,
+          overrides:
+            dateOverrides,
+          bookings,
+          durationByBooking,
+          duration,
+        });
+
+      days.push({
+        date:
+          currentKey,
+        available:
+          slots.length >
+          0,
+        slots,
+      });
+    }
+
     return NextResponse.json({
-      from,
-      to,
+      month,
       duration,
       days,
     });

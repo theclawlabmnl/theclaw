@@ -8,6 +8,7 @@ export default async function Home() {
   let services: any[] = [];
   let reviews: any[] = [];
   let promo: any = null;
+  let settings: Record<string, string> = {};
 
   try {
     const db = supabaseAdmin();
@@ -16,93 +17,157 @@ export default async function Home() {
       servicesResult,
       reviewsResult,
       promoResult,
+      settingsResult,
     ] = await Promise.all([
       db
         .from("services")
-        .select(
-          "id,name,description,price,duration_minutes"
-        )
+        .select("id,name,description,price,duration_minutes")
         .eq("active", true)
-        .order("sort_order", {
-          ascending: true,
-        }),
+        .order("sort_order", { ascending: true }),
 
       db
         .from("reviews")
-        .select(
-          "rating,review_text,display_name"
-        )
+        .select("rating,review_text,display_name")
         .eq("status", "approved")
         .eq("featured", true)
-        .order("created_at", {
-          ascending: false,
-        })
+        .order("created_at", { ascending: false })
         .limit(6),
 
       db
         .from("promos")
         .select("*")
         .eq("active", true)
-        .order("created_at", {
-          ascending: false,
-        })
+        .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+
+      db.from("site_settings").select("key,value"),
     ]);
 
-    services =
-      servicesResult.data || [];
+    services = servicesResult.data || [];
+    reviews = reviewsResult.data || [];
+    promo = promoResult.data;
 
-    reviews =
-      reviewsResult.data || [];
-
-    promo =
-      promoResult.data;
+    settings = Object.fromEntries(
+      (settingsResult.data || []).map((item) => [item.key, item.value])
+    );
   } catch {
-    // Keep homepage available if Supabase temporarily fails.
+    // Keep the homepage available if Supabase temporarily fails.
   }
+
+  const email =
+    settings.email ||
+    settings.contact_email ||
+    settings.business_email ||
+    "theclawlabmnl@gmail.com";
 
   return (
     <main>
       {/* HERO */}
-      <section className="hero container">
-        <div>
-          <div className="hero-card">
-            <div className="hero-card-content">
-              <h1>
-                The Claw Lab MNL
-              </h1>
-
-              <p>
-                Homebased Nail Studio ·
-                Quezon City
-              </p>
+      <section
+        className="hero container home-hero"
+        style={{
+          width: "100%",
+          maxWidth: 1200,
+          margin: "0 auto",
+          paddingTop: 42,
+          paddingBottom: 72,
+          paddingLeft: 16,
+          paddingRight: 16,
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          className="home-hero-inner"
+          style={{
+            width: "100%",
+            maxWidth: 760,
+            margin: "0 auto",
+            textAlign: "center",
+            boxSizing: "border-box",
+          }}
+        >
+          <div
+            className="home-hero-card"
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "30px 26px",
+              borderRadius: 24,
+              border: "1px solid var(--line)",
+              background: "#fffaf8",
+              boxShadow: "0 10px 30px rgba(91, 65, 65, 0.08)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              className="kicker"
+              style={{
+                marginBottom: 10,
+              }}
+            >
+              THE CLAW LAB MNL
             </div>
+
+            <h1
+              className="serif home-hero-title"
+              style={{
+                margin: 0,
+                color: "var(--ink, #3f3535)",
+                fontSize: "clamp(34px, 7vw, 60px)",
+                lineHeight: 1.05,
+                fontWeight: 500,
+                overflowWrap: "anywhere",
+              }}
+            >
+              Your nails, but better.
+            </h1>
+
+            <p
+              className="home-hero-subtitle"
+              style={{
+                margin: "12px 0 0",
+                color: "var(--muted, #776a6a)",
+                fontSize: "clamp(14px, 2vw, 17px)",
+                lineHeight: 1.5,
+                overflowWrap: "anywhere",
+              }}
+            >
+              Homebased Nail Studio · Quezon City
+            </p>
           </div>
 
-          <div className="kicker">
-            soft neutrals · clean details ·
-            pretty claws ♡
+          <div
+            className="kicker"
+            style={{
+              marginTop: 24,
+            }}
+          >
+            soft neutrals · clean details · pretty claws ♡
           </div>
 
-          <p>
-            Your nails, but better. A soft,
-            polished little nail studio in
-            Novaliches, Quezon City.
+          <p
+            style={{
+              maxWidth: 620,
+              margin: "12px auto 0",
+              lineHeight: 1.7,
+            }}
+          >
+            A soft, polished little nail studio in Novaliches, Quezon City.
+            Your appointment starts with a simple request, then Nailtech approval.
           </p>
 
           <div
             style={{
               display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
               gap: 10,
               flexWrap: "wrap",
-              marginTop: 25,
+              marginTop: 24,
             }}
           >
-            <Link
-              className="btn"
-              href="/book"
-            >
+            <Link className="btn" href="/book">
               Book an appointment
             </Link>
 
@@ -119,151 +184,80 @@ export default async function Home() {
       </section>
 
       {/* PROMO */}
-      <section
-        id="promo"
-        className="section"
-      >
+      <section id="promo" className="section">
         <div className="container">
           <div className="promo">
-            <div className="kicker">
-              Promo of the Day
-            </div>
+            <div className="kicker">Promo of the Day</div>
 
-            <h2 className="serif">
-              SEPTEM-BER PROMO
-            </h2>
+            <h2 className="serif">SEPTEM-BER PROMO</h2>
 
             {promo ? (
-              <p
-                style={{
-                  whiteSpace:
-                    "pre-wrap",
-                }}
-              >
-                <strong>
-                  {promo.name}
-                </strong>
-
+              <p style={{ whiteSpace: "pre-wrap" }}>
+                <strong>{promo.name}</strong>
                 <br />
-
                 {promo.description}
               </p>
             ) : (
               <div className="promo-grid">
                 <div className="card">
-                  <div className="kicker">
-                    Soft
-                  </div>
-
-                  <h3>
-                    ₱1,099 · ANY DESIGN
-                  </h3>
-
-                  <p>
-                    Soft Gel + Soft BIAB
-                  </p>
+                  <div className="kicker">Soft</div>
+                  <h3>₱1,099 · ANY DESIGN</h3>
+                  <p>Soft Gel + Soft BIAB</p>
                 </div>
 
                 <div className="card">
-                  <div className="kicker">
-                    Hard
-                  </div>
-
-                  <h3>
-                    ₱1,399 · ANY DESIGN
-                  </h3>
-
-                  <p>
-                    Hard Gel Extensions +
-                    Hard Builder Gel
-                  </p>
+                  <div className="kicker">Hard</div>
+                  <h3>₱1,399 · ANY DESIGN</h3>
+                  <p>Hard Gel Extensions + Hard Builder Gel</p>
                 </div>
               </div>
             )}
 
             <p className="muted">
-              Removal is not included. If
-              the chosen design is originally
-              worth less than the promo price,
-              regular rate applies with 10%
-              discount.
+              Removal is not included. If the chosen design is originally worth
+              less than the promo price, regular rate applies with 10% discount.
             </p>
           </div>
         </div>
       </section>
 
       {/* SERVICES */}
-      <section
-        id="services"
-        className="section"
-      >
+      <section id="services" className="section">
         <div className="container">
           <div className="section-head">
             <div>
-              <div className="kicker">
-                The menu
-              </div>
-
-              <h2>
-                Services
-              </h2>
+              <div className="kicker">The menu</div>
+              <h2>Services</h2>
             </div>
 
-            <Link
-              href="/book"
-              className="btn secondary small"
-            >
+            <Link href="/book" className="btn secondary small">
               View &amp; book
             </Link>
           </div>
 
           <div className="grid">
             {services.length ? (
-              services.map(
-                (service) => (
-                  <div
-                    className="card service-card"
-                    key={
-                      service.id
-                    }
-                  >
-                    <h3>
-                      {
-                        service.name
-                      }
-                    </h3>
+              services.map((service) => (
+                <div className="card service-card" key={service.id}>
+                  <h3>{service.name}</h3>
 
-                    <p className="muted">
-                      {service.description ||
-                        "A polished Claw Lab MNL service."}
-                    </p>
+                  <p className="muted">
+                    {service.description || "A polished Claw Lab MNL service."}
+                  </p>
 
-                    <div className="price">
-                      {peso(
-                        service.price
-                      )}{" "}
-                      <span className="muted">
-                        ·{" "}
-                        {
-                          service.duration_minutes
-                        }{" "}
-                        min
-                      </span>
-                    </div>
+                  <div className="price">
+                    {peso(service.price)}{" "}
+                    <span className="muted">
+                      · {service.duration_minutes} min
+                    </span>
                   </div>
-                )
-              )
+                </div>
+              ))
             ) : (
               <div className="card">
-                <h3>
-                  Services coming together
-                  ♡
-                </h3>
-
+                <h3>Services coming together ♡</h3>
                 <p className="muted">
-                  Prices and details are
-                  configurable from the admin
-                  dashboard.
+                  Prices and details are configurable from the admin dashboard.
                 </p>
               </div>
             )}
@@ -272,61 +266,30 @@ export default async function Home() {
       </section>
 
       {/* REVIEWS */}
-      <section
-        id="reviews"
-        className="section"
-      >
+      <section id="reviews" className="section">
         <div className="container">
           <div className="section-head">
             <div>
-              <div className="kicker">
-                Client love
-              </div>
-
-              <h2>
-                Loved by our clients ♡
-              </h2>
+              <div className="kicker">Client love</div>
+              <h2>Loved by our clients ♡</h2>
             </div>
           </div>
 
           <div className="grid">
             {reviews.length ? (
-              reviews.map(
-                (
-                  review,
-                  index
-                ) => (
-                  <div
-                    className="card review-card"
-                    key={`${review.display_name}-${index}`}
-                  >
-                    <div>
-                      ★★★★★
-                    </div>
-
-                    <p>
-                      “
-                      {
-                        review.review_text
-                      }
-                      ”
-                    </p>
-
-                    <strong>
-                      —{" "}
-                      {
-                        review.display_name
-                      }
-                    </strong>
-                  </div>
-                )
-              )
+              reviews.map((review, index) => (
+                <div
+                  className="card review-card"
+                  key={`${review.display_name}-${index}`}
+                >
+                  <div>★★★★★</div>
+                  <p>“{review.review_text}”</p>
+                  <strong>— {review.display_name}</strong>
+                </div>
+              ))
             ) : (
               <div className="card">
-                <p className="muted">
-                  Client reviews will
-                  appear here.
-                </p>
+                <p className="muted">Client reviews will appear here.</p>
               </div>
             )}
           </div>
@@ -334,73 +297,91 @@ export default async function Home() {
       </section>
 
       {/* CONTACT */}
-      <section
-        id="contact"
-        className="section contact-section"
-      >
+      <section id="contact" className="section contact-section">
         <div className="container">
           <div className="contact-card">
-            {/* LOCATION */}
             <div className="contact-item">
-              <div className="kicker">
-                Location
-              </div>
+              <div className="kicker">Location</div>
 
-              <h2 className="serif">
-                Novaliches, Quezon City
-              </h2>
+              <h2 className="serif">Novaliches, Quezon City</h2>
 
               <p className="muted">
-                Home-based studio. For privacy
-                and security, the exact location
-                will only be shared after your
-                appointment has been approved.
+                Home-based studio. For privacy and security, the exact location
+                is shared only after your appointment is approved.
               </p>
             </div>
 
-            {/* CONTACT */}
             <div className="contact-item">
-              <div className="kicker">
-                Get in touch
+              <div className="kicker">Get in touch</div>
+
+              <div className="contact-detail">
+                <span>Email: </span>
+                <a href={`mailto:${email}`}>{email}</a>
               </div>
 
-              <div className="contact-details">
-                <div className="contact-detail">
-                  <span>
-                    Email
-                  </span>
+              <div className="contact-socials">
+                <a
+                  className="btn secondary small"
+                  href="https://instagram.com/theclawlabmnl"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Instagram
+                </a>
 
-                  <a
-                    href="mailto:theclawlabmnl@gmail.com"
-                  >
-                    theclawlabmnl@gmail.com
-                  </a>
-                </div>
-
-                <div className="contact-socials">
-                  <a
-                    className="btn secondary small"
-                    href="https://instagram.com/theclawlabmnl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Instagram
-                  </a>
-
-                  <a
-                    className="btn secondary small"
-                    href="https://m.me/theclawlabmnl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Messenger
-                  </a>
-                </div>
+                <a
+                  className="btn secondary small"
+                  href="https://m.me/theclawlabmnl"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Messenger
+                </a>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Scoped hero safeguards so older .hero/.hero-card styles cannot hide the text. */}
+      <style>{`
+        .home-hero,
+        .home-hero * {
+          min-width: 0;
+        }
+
+        .home-hero-card,
+        .home-hero-card h1,
+        .home-hero-card p,
+        .home-hero-card .kicker {
+          visibility: visible !important;
+          opacity: 1 !important;
+        }
+
+        .home-hero-card h1 {
+          display: block !important;
+          position: static !important;
+          color: var(--ink, #3f3535) !important;
+        }
+
+        .home-hero-card p {
+          display: block !important;
+          position: static !important;
+          color: var(--muted, #776a6a) !important;
+        }
+
+        @media (max-width: 640px) {
+          .home-hero {
+            padding-top: 24px !important;
+            padding-bottom: 52px !important;
+          }
+
+          .home-hero-card {
+            padding: 24px 18px !important;
+            border-radius: 20px !important;
+          }
+        }
+      `}</style>
     </main>
   );
 }

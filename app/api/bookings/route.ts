@@ -1142,6 +1142,12 @@ export async function POST(
       promoChoice ===
       "referral";
 
+    const discountCategory =
+      String(
+        payload.discount_category ||
+          ""
+      ).toLowerCase();
+
     /*
      * CURRENT PROMO
      *
@@ -1236,35 +1242,61 @@ export async function POST(
     /*
      * STUDENT / PWD / SC DISCOUNT
      *
-     * 5% discount.
-     * BOTH verification documents are required.
+     * 5% discount. A valid ID is required.
+     * Registration Card/Form is optional and
+     * only relevant when the customer is a Student.
      */
     if (
       isStudentPwdSc
     ) {
-      promoName =
-        "Student / PWD / SC Discount";
-
       discount =
         baseTotal * 0.05;
+
+      if (
+        ![
+          "student",
+          "pwd",
+          "senior_citizen",
+        ].includes(
+          discountCategory
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Please select whether the discount is for a Student, PWD, or Senior Citizen.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        discountCategory ===
+        "student"
+      ) {
+        promoName =
+          "Student / PWD / SC Discount — Student";
+      } else if (
+        discountCategory ===
+        "pwd"
+      ) {
+        promoName =
+          "Student / PWD / SC Discount — PWD";
+      } else {
+        promoName =
+          "Student / PWD / SC Discount — Senior Citizen";
+      }
 
       const validId =
         formData.get(
           "student_valid_id"
         );
 
-      const registration =
-        formData.get(
-          "student_registration"
-        );
-
       if (
-        !(
-          validId instanceof
-          File
-        ) ||
-        validId.size <=
-          0
+        !(validId instanceof File) ||
+        validId.size <= 0
       ) {
         return NextResponse.json(
           {
@@ -1278,17 +1310,15 @@ export async function POST(
       }
 
       if (
-        !(
-          registration instanceof
-          File
-        ) ||
-        registration.size <=
-          0
+        validId.size >
+        MAX_STUDENT_FILE_MB *
+          1024 *
+          1024
       ) {
         return NextResponse.json(
           {
             error:
-              "Student / PWD / SC Discount requires a current Registration Card/Form.",
+              "Student verification files must be 8MB or smaller.",
           },
           {
             status: 400,
@@ -1296,18 +1326,35 @@ export async function POST(
         );
       }
 
-      const verificationFiles =
-        [
-          validId,
-          registration,
-        ];
+      if (
+        !STUDENT_FILE_TYPES.has(
+          validId.type
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Student verification files must be JPG, PNG, HEIC, or PDF.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
 
-      for (
-        const file of
-          verificationFiles
+      const registration =
+        formData.get(
+          "student_registration"
+        );
+
+      if (
+        discountCategory ===
+          "student" &&
+        registration instanceof File &&
+        registration.size > 0
       ) {
         if (
-          file.size >
+          registration.size >
           MAX_STUDENT_FILE_MB *
             1024 *
             1024
@@ -1325,7 +1372,7 @@ export async function POST(
 
         if (
           !STUDENT_FILE_TYPES.has(
-            file.type
+            registration.type
           )
         ) {
           return NextResponse.json(
@@ -1673,8 +1720,10 @@ export async function POST(
     /*
      * STUDENT / PWD / SC DOCUMENTS
      *
-     * Stored separately using distinct `kind`
-     * values so Admin can identify them.
+     * Valid ID is required for all three.
+     * Registration Card/Form is optional and
+     * only saved when the customer selected Student
+     * and uploaded one.
      */
     if (
       isStudentPwdSc
@@ -1689,15 +1738,14 @@ export async function POST(
           "student_registration"
         );
 
-      const studentDocuments:
-        Array<{
-          file: File;
-          kind: string;
-        }> = [];
+      const studentDocuments: Array<{
+        file: File;
+        kind: string;
+      }> = [];
 
       if (
-        validId instanceof
-        File
+        validId instanceof File &&
+        validId.size > 0
       ) {
         studentDocuments.push({
           file: validId,
@@ -1707,8 +1755,10 @@ export async function POST(
       }
 
       if (
-        registration instanceof
-        File
+        discountCategory ===
+          "student" &&
+        registration instanceof File &&
+        registration.size > 0
       ) {
         studentDocuments.push({
           file: registration,
@@ -1742,7 +1792,6 @@ export async function POST(
               {
                 contentType:
                   document.file.type,
-
                 upsert:
                   false,
               }
@@ -1763,12 +1812,9 @@ export async function POST(
             .insert({
               booking_id:
                 booking.id,
-
               bucket:
                 "nail-inspiration",
-
               path,
-
               kind:
                 document.kind,
             });

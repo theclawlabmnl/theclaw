@@ -5,31 +5,71 @@ import {
   useMemo,
   useState,
 } from "react";
-
 import { useRouter } from "next/navigation";
 import { peso } from "@/lib/utils";
-import type { Service } from "@/lib/types";
+import type {
+  Service,
+} from "@/lib/types";
 
 const FULL_POLICY_URL =
   "https://docs.google.com/document/d/1aIrWBfOvahFIs1j4nsryNNydulxCCd9-D4ehWWyjsRg/edit?usp=sharing";
 
-function dateValue(date: Date) {
-  return `${date.getFullYear()}-${String(
+const DESIGN_GUIDE_URL =
+  "https://drive.google.com/file/d/1dlP8kP9WLrA71hYyTfm8sJ0l0ddrPnFd/view?usp=drive_link";
+
+type DayAvailability = {
+  date: string;
+  available: boolean;
+  slots: string[];
+};
+
+type AvailabilityMap = Record<
+  string,
+  DayAvailability
+>;
+
+const WEEKDAYS = [
+  "Sun",
+  "Mon",
+  "Tue",
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
+];
+
+function dateKey(
+  date: Date
+) {
+  const year =
+    date.getFullYear();
+  const month = String(
     date.getMonth() + 1
-  ).padStart(
-    2,
-    "0"
-  )}-${String(
+  ).padStart(2, "0");
+  const day = String(
     date.getDate()
-  ).padStart(
-    2,
-    "0"
-  )}`;
+  ).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
-function monthText(date: Date) {
+function monthKey(
+  date: Date
+) {
+  const year =
+    date.getFullYear();
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function formatMonth(
+  date: Date
+) {
   return date.toLocaleDateString(
-    "en-US",
+    "en-PH",
     {
       month: "long",
       year: "numeric",
@@ -37,148 +77,35 @@ function monthText(date: Date) {
   );
 }
 
-function readableDate(value: string) {
-  if (!value) return "";
+function formatSelectedDate(
+  value: string
+) {
+  if (!value) {
+    return "";
+  }
 
-  return new Date(
-    `${value}T12:00:00`
-  ).toLocaleDateString(
-    "en-US",
+  const [
+    year,
+    month,
+    day,
+  ] = value
+    .split("-")
+    .map(Number);
+
+  const date = new Date(
+    year,
+    month - 1,
+    day
+  );
+
+  return date.toLocaleDateString(
+    "en-PH",
     {
       weekday: "long",
       month: "long",
       day: "numeric",
       year: "numeric",
     }
-  );
-}
-
-function readableTime(value: string) {
-  if (!value) return "";
-
-  const [
-    hours,
-    minutes,
-  ] = value
-    .slice(0, 5)
-    .split(":")
-    .map(Number);
-
-  const hour =
-    hours % 12 || 12;
-
-  const period =
-    hours >= 12 ? "PM" : "AM";
-
-  return `${hour}:${String(
-    minutes
-  ).padStart(
-    2,
-    "0"
-  )} ${period}`;
-}
-
-function getCalendarDays(
-  month: Date
-) {
-  const year =
-    month.getFullYear();
-
-  const monthIndex =
-    month.getMonth();
-
-  const firstDay =
-    new Date(
-      year,
-      monthIndex,
-      1
-    ).getDay();
-
-  const daysInMonth =
-    new Date(
-      year,
-      monthIndex + 1,
-      0
-    ).getDate();
-
-  const result: Array<
-    | {
-        date: string;
-        day: number;
-      }
-    | null
-  > = [];
-
-  for (
-    let i = 0;
-    i < firstDay;
-    i++
-  ) {
-    result.push(null);
-  }
-
-  for (
-    let day = 1;
-    day <= daysInMonth;
-    day++
-  ) {
-    const current =
-      new Date(
-        year,
-        monthIndex,
-        day
-      );
-
-    result.push({
-      date:
-        dateValue(current),
-      day,
-    });
-  }
-
-  return result;
-}
-
-function promoDiscount(
-  promo: any,
-  total: number
-) {
-  if (!promo) {
-    return 0;
-  }
-
-  const type = String(
-    promo.discount_type ||
-      ""
-  ).toLowerCase();
-
-  const value =
-    Number(
-      promo.discount_value
-    ) || 0;
-
-  if (value <= 0) {
-    return 0;
-  }
-
-  if (
-    type ===
-      "percentage" ||
-    type ===
-      "percent" ||
-    type ===
-      "percent_off"
-  ) {
-    return Math.min(
-      total,
-      total *
-        (value / 100)
-    );
-  }
-
-  return Math.min(
-    total,
-    value
   );
 }
 
@@ -202,54 +129,19 @@ export default function BookingForm({
   >({});
 
   const [
-    inspirationFiles,
-    setInspirationFiles,
-  ] = useState<File[]>(
-    []
-  );
+    files,
+    setFiles,
+  ] = useState<File[]>([]);
 
   const [
-    studentIdFile,
-    setStudentIdFile,
-  ] = useState<File | null>(
-    null
-  );
+    studentValidId,
+    setStudentValidId,
+  ] = useState<File | null>(null);
 
   const [
-    studentRegistrationFile,
-    setStudentRegistrationFile,
-  ] = useState<File | null>(
-    null
-  );
-
-  const [
-    month,
-    setMonth,
-  ] = useState(() => {
-    const now =
-      new Date();
-
-    return new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1
-    );
-  });
-
-  const [
-    availability,
-    setAvailability,
-  ] = useState<
-    Record<
-      string,
-      string[]
-    >
-  >({});
-
-  const [
-    loadingAvailability,
-    setLoadingAvailability,
-  ] = useState(false);
+    studentRegistration,
+    setStudentRegistration,
+  ] = useState<File | null>(null);
 
   const [
     form,
@@ -262,6 +154,7 @@ export default function BookingForm({
     preferred_time: "",
     removal: "None",
     promo_choice: "",
+    discount_category: "",
     referral_name: "",
     notes: "",
     terms_accepted: false,
@@ -273,243 +166,159 @@ export default function BookingForm({
   ] = useState(false);
 
   const [
-    error,
-    setError,
+    err,
+    setErr,
   ] = useState("");
 
-  const items =
-    useMemo(
-      () =>
-        services
-          .filter(
-            (service) =>
-              selected[
-                service.id
-              ] !== undefined
-          )
-          .map(
-            (service) => {
-              const variation =
-                service.service_variations?.find(
-                  (item) =>
-                    item.id ===
-                    selected[
-                      service.id
-                    ]
-                );
+  const [
+    calendarMonth,
+    setCalendarMonth,
+  ] = useState(
+    new Date(
+      new Date().getFullYear(),
+      new Date().getMonth(),
+      1
+    )
+  );
 
-              return {
-                service_id:
-                  service.id,
+  const [
+    availability,
+    setAvailability,
+  ] = useState<AvailabilityMap>(
+    {}
+  );
 
-                service_name:
-                  service.name,
+  const [
+    availabilityLoading,
+    setAvailabilityLoading,
+  ] = useState(false);
 
-                variation_id:
-                  variation?.id,
+  const [
+    availabilityError,
+    setAvailabilityError,
+  ] = useState("");
 
-                variation_name:
-                  variation?.name,
+  const items = useMemo(
+    () =>
+      services
+        .filter(
+          (service) =>
+            selected[
+              service.id
+            ] !== undefined
+        )
+        .map(
+          (service) => {
+            const variation =
+              service.service_variations?.find(
+                (item) =>
+                  item.id ===
+                  selected[
+                    service.id
+                  ]
+              );
 
-                price:
-                  Number(
-                    service.price
-                  ) +
-                  Number(
-                    variation?.price_delta ||
-                      0
-                  ),
+            return {
+              service_id:
+                service.id,
+              service_name:
+                service.name,
+              variation_id:
+                variation?.id,
+              variation_name:
+                variation?.name,
+              price:
+                service.price +
+                (variation?.price_delta ||
+                  0),
+              duration_minutes:
+                service.duration_minutes +
+                (variation?.duration_delta_minutes ||
+                  0),
+            };
+          }
+        ),
+    [
+      services,
+      selected,
+    ]
+  );
 
-                duration_minutes:
-                  Number(
-                    service.duration_minutes
-                  ) +
-                  Number(
-                    variation?.duration_delta_minutes ||
-                      0
-                  ),
-              };
-            }
-          ),
-      [
-        services,
-        selected,
-      ]
-    );
-
-  const baseTotal =
+  const total =
     items.reduce(
       (
-        total,
-        item
+        sum: number,
+        item: {
+          price: number;
+        }
       ) =>
-        total +
-        item.price,
+        sum + item.price,
       0
     );
 
-  const duration =
+  const durationMinutes =
     Math.max(
       30,
       items.reduce(
         (
-          total,
-          item
+          sum: number,
+          item: {
+            duration_minutes: number;
+          }
         ) =>
-          total +
-          item.duration_minutes,
+          sum +
+          Number(
+            item.duration_minutes ||
+              0
+          ),
         0
-      )
+      ) || 60
     );
 
-  const currentPromo =
-    form.promo_choice.startsWith(
-      "promo:"
-    )
-      ? promos.find(
-          (promo) =>
-            String(
-              promo.id
-            ) ===
-            form.promo_choice.slice(
-              6
-            )
-        )
-      : null;
+  const toggleService = (
+    id: string
+  ) => {
+    setSelected(
+      (current) => {
+        const next = {
+          ...current,
+        };
 
-  const permanentType =
-    form.promo_choice;
+        if (
+          next[id] !==
+          undefined
+        ) {
+          delete next[id];
+        } else {
+          next[id] = "";
+        }
 
-  let discount = 0;
-
-  if (
-    permanentType ===
-    "first_time"
-  ) {
-    discount =
-      baseTotal * 0.05;
-  }
-
-  if (
-    permanentType ===
-    "student_pwd_sc"
-  ) {
-    discount =
-      baseTotal * 0.05;
-  }
-
-  if (
-    currentPromo
-  ) {
-    discount =
-      promoDiscount(
-        currentPromo,
-        baseTotal
-      );
-  }
-
-  const estimatedTotal =
-    Math.max(
-      0,
-      baseTotal -
-        discount
+        return next;
+      }
     );
+  };
 
-  const cells =
-    useMemo(
-      () =>
-        getCalendarDays(
-          month
-        ),
-      [month]
-    );
-
-  const today =
-    dateValue(
-      new Date()
-    );
-
-  const selectedSlots =
-    form.preferred_date
-      ? availability[
-          form.preferred_date
-        ] || []
-      : [];
-
-  const promoLabel =
-    currentPromo
-      ? currentPromo.name
-      : permanentType ===
-        "first_time"
-        ? "First-time Booking Discount"
-        : permanentType ===
-          "student_pwd_sc"
-          ? "Student / PWD / SC Discount"
-          : permanentType ===
-            "referral"
-            ? "Referral Program"
-            : "Not Applicable";
-
-  const isStudentDiscount =
-    permanentType ===
-    "student_pwd_sc";
-
-  const isReferral =
-    permanentType ===
-    "referral";
-
-  const isPromo =
-    Boolean(
-      currentPromo
-    );
-
+  /*
+   * Load the current month's
+   * available dates and slots.
+   */
   useEffect(() => {
-    if (!items.length) {
-      setAvailability({});
-      return;
-    }
+    let cancelled = false;
 
-    const first =
-      new Date(
-        month.getFullYear(),
-        month.getMonth(),
-        1
-      );
-
-    const last =
-      new Date(
-        month.getFullYear(),
-        month.getMonth() + 1,
-        0
-      );
-
-    const from =
-      dateValue(first);
-
-    const to =
-      dateValue(last);
-
-    let cancelled =
-      false;
-
-    async function load() {
-      setLoadingAvailability(
+    async function loadAvailability() {
+      setAvailabilityLoading(
         true
       );
+      setAvailabilityError("");
 
       try {
         const response =
           await fetch(
-            `/api/availability?from=${encodeURIComponent(
-              from
-            )}&to=${encodeURIComponent(
-              to
-            )}&duration=${encodeURIComponent(
-              duration
-            )}`,
+            `/api/availability?month=${monthKey(
+              calendarMonth
+            )}&duration=${durationMinutes}`,
             {
-              cache:
-                "no-store",
+              cache: "no-store",
             }
           );
 
@@ -526,64 +335,86 @@ export default function BookingForm({
         }
 
         if (
-          !cancelled
+          cancelled
         ) {
-          setAvailability(
-            result.days ||
-              {}
-          );
+          return;
         }
-      } catch {
+
+        const next: AvailabilityMap =
+          Object.fromEntries(
+            (
+              result.days ||
+              []
+            ).map(
+              (
+                day: DayAvailability
+              ) => [
+                day.date,
+                day,
+              ]
+            )
+          );
+
+        setAvailability(
+          next
+        );
+      } catch (
+        error: any
+      ) {
         if (
-          !cancelled
+          cancelled
         ) {
-          setAvailability(
-            {}
-          );
+          return;
         }
+
+        setAvailabilityError(
+          error?.message ||
+            "Unable to load availability."
+        );
+        setAvailability(
+          {}
+        );
       } finally {
         if (
           !cancelled
         ) {
-          setLoadingAvailability(
+          setAvailabilityLoading(
             false
           );
         }
       }
     }
 
-    load();
+    loadAvailability();
 
     return () => {
       cancelled = true;
     };
   }, [
-    month,
-    duration,
-    items.length,
+    calendarMonth,
+    durationMinutes,
   ]);
 
-  const toggleService =
-    (id: string) => {
-      setSelected(
-        (current) => {
-          const next = {
-            ...current,
-          };
+  /*
+   * If the selected service duration
+   * changes and the previous slot is
+   * no longer possible, clear it.
+   */
+  useEffect(() => {
+    if (
+      !form.preferred_date
+    ) {
+      return;
+    }
 
-          if (
-            next[id] !==
-            undefined
-          ) {
-            delete next[id];
-          } else {
-            next[id] = "";
-          }
+    const day =
+      availability[
+        form.preferred_date
+      ];
 
-          return next;
-        }
-      );
-
+    if (
+      !day?.available
+    ) {
       setForm(
         (current) => ({
           ...current,
@@ -593,78 +424,140 @@ export default function BookingForm({
             "",
         })
       );
-    };
+      return;
+    }
 
-  const chooseDate =
-    (date: string) => {
-      const slots =
-        availability[
-          date
-        ] || [];
-
-      if (!slots.length) {
-        return;
-      }
-
+    if (
+      form.preferred_time &&
+      !day.slots.includes(
+        form.preferred_time
+      )
+    ) {
       setForm(
         (current) => ({
           ...current,
-          preferred_date:
-            date,
           preferred_time:
             "",
         })
       );
+    }
+  }, [
+    availability,
+    form.preferred_date,
+    form.preferred_time,
+  ]);
 
-      setError("");
-    };
+  const firstDay =
+    new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      1
+    );
+
+  const daysInMonth =
+    new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth() + 1,
+      0
+    ).getDate();
+
+  const leadingBlankDays =
+    firstDay.getDay();
+
+  const calendarCells: Array<
+    Date | null
+  > = [];
+
+  for (
+    let index = 0;
+    index <
+    leadingBlankDays;
+    index++
+  ) {
+    calendarCells.push(
+      null
+    );
+  }
+
+  for (
+    let day = 1;
+    day <=
+    daysInMonth;
+    day++
+  ) {
+    calendarCells.push(
+      new Date(
+        calendarMonth.getFullYear(),
+        calendarMonth.getMonth(),
+        day
+      )
+    );
+  }
+
+  const today = new Date();
+  const todayKey =
+    dateKey(today);
 
   const previousMonth =
-    () => {
-      const current =
-        new Date(
-          new Date().getFullYear(),
-          new Date().getMonth(),
-          1
-        );
+    new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth() - 1,
+      1
+    );
 
-      const previous =
-        new Date(
-          month.getFullYear(),
-          month.getMonth() - 1,
-          1
-        );
+  const previousMonthKey =
+    monthKey(
+      previousMonth
+    );
 
-      if (
-        previous < current
-      ) {
-        return;
-      }
+  const currentMonthKey =
+    monthKey(
+      new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        1
+      )
+    );
 
-      setMonth(
-        previous
-      );
-    };
+  const canGoPrevious =
+    previousMonthKey >=
+    currentMonthKey;
 
-  const nextMonth =
-    () => {
-      setMonth(
-        new Date(
-          month.getFullYear(),
-          month.getMonth() + 1,
-          1
-        )
-      );
-    };
+  const chooseDate = (
+    value: string
+  ) => {
+    const day =
+      availability[value];
+
+    if (
+      !day?.available
+    ) {
+      return;
+    }
+
+    setForm(
+      (current) => ({
+        ...current,
+        preferred_date:
+          value,
+        preferred_time:
+          day.slots.includes(
+            current.preferred_time
+          )
+            ? current.preferred_time
+            : "",
+      })
+    );
+  };
 
   const submit =
     async () => {
-      setError("");
+      setErr("");
 
       if (
         !items.length
       ) {
-        setError(
+        setErr(
           "Please select at least one service."
         );
         return;
@@ -672,20 +565,12 @@ export default function BookingForm({
 
       if (
         !form.customer_name ||
-        !form.mobile_number
-      ) {
-        setError(
-          "Please complete your required customer details."
-        );
-        return;
-      }
-
-      if (
+        !form.mobile_number ||
         !form.preferred_date ||
         !form.preferred_time
       ) {
-        setError(
-          "Please choose an available date and time."
+        setErr(
+          "Please complete the required customer and appointment fields."
         );
         return;
       }
@@ -693,38 +578,48 @@ export default function BookingForm({
       if (
         !form.terms_accepted
       ) {
-        setError(
+        setErr(
           "Please read and agree to the studio’s policies before continuing."
         );
         return;
       }
 
+      if (!form.promo_choice) {
+        setErr(
+          "Please choose a promo or discount option."
+        );
+        return;
+      }
+
       if (
-        isReferral &&
+        form.promo_choice ===
+          "referral" &&
         !form.referral_name.trim()
       ) {
-        setError(
+        setErr(
           "Please enter the name of the person who referred you."
         );
         return;
       }
 
       if (
-        isStudentDiscount &&
-        !studentIdFile
+        form.promo_choice ===
+          "student_pwd_sc" &&
+        !form.discount_category
       ) {
-        setError(
-          "Please upload your Valid ID."
+        setErr(
+          "Please select whether the discount is for a Student, PWD, or Senior Citizen."
         );
         return;
       }
 
       if (
-        isStudentDiscount &&
-        !studentRegistrationFile
+        form.promo_choice ===
+          "student_pwd_sc" &&
+        !studentValidId
       ) {
-        setError(
-          "Please upload your current Registration Card or Registration Form."
+        setErr(
+          "Student / PWD / SC Discount requires a valid ID."
         );
         return;
       }
@@ -739,42 +634,23 @@ export default function BookingForm({
           "payload",
           JSON.stringify({
             ...form,
-
-            promo_id:
-              form.promo_choice.startsWith(
-                "promo:"
-              )
-                ? form.promo_choice.slice(
-                    6
-                  )
-                : null,
-
-            promo_choice:
-              form.promo_choice,
-
-            promo_name:
-              promoLabel,
-
             services:
               items,
-
-            estimated_total:
-              estimatedTotal,
-
-            student_proof_required:
-              isStudentDiscount,
-
+            promo_choice:
+              form.promo_choice,
+            discount_category:
+              form.discount_category,
+            referral_name:
+              form.referral_name,
             inspiration_files:
-              inspirationFiles.map(
-                (
-                  file
-                ) =>
+              files.map(
+                (file) =>
                   file.name
               ),
           })
         );
 
-        inspirationFiles.forEach(
+        files.forEach(
           (file) => {
             data.append(
               "inspiration",
@@ -783,21 +659,17 @@ export default function BookingForm({
           }
         );
 
-        if (
-          studentIdFile
-        ) {
+        if (studentValidId) {
           data.append(
             "student_valid_id",
-            studentIdFile
+            studentValidId
           );
         }
 
-        if (
-          studentRegistrationFile
-        ) {
+        if (studentRegistration) {
           data.append(
             "student_registration",
-            studentRegistrationFile
+            studentRegistration
           );
         }
 
@@ -827,21 +699,22 @@ export default function BookingForm({
           `/book/review?token=${result.token}`
         );
       } catch (
-        err: any
+        error: any
       ) {
-        setError(
-          err?.message ||
+        setErr(
+          error?.message ||
             "Unable to submit your request."
         );
       } finally {
-        setBusy(false);
+        setBusy(
+          false
+        );
       }
     };
 
   return (
     <div className="form-layout">
       <div className="form-card">
-
         {/* SERVICES */}
         <h2 className="serif">
           1. Services
@@ -928,8 +801,7 @@ export default function BookingForm({
                         Standard
                       </option>
 
-                      {service
-                        .service_variations
+                      {service.service_variations
                         ?.filter(
                           (
                             variation
@@ -949,10 +821,10 @@ export default function BookingForm({
                             variation
                           ) => (
                             <option
-                              key={
+                              value={
                                 variation.id
                               }
-                              value={
+                              key={
                                 variation.id
                               }
                             >
@@ -978,11 +850,49 @@ export default function BookingForm({
           )}
         </div>
 
-        {/* DETAILS */}
+        <div
+          style={{
+            marginTop:
+              14,
+            padding:
+              "12px 14px",
+            border:
+              "1px solid var(--line)",
+            borderRadius: 12,
+            background:
+              "var(--soft)",
+            lineHeight: 1.5,
+            fontSize: 13,
+          }}
+        >
+          Not sure which design set to choose, or not sure which tier your
+          chosen design falls under?{" "}
+          <a
+            href={
+              DESIGN_GUIDE_URL
+            }
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              color:
+                "var(--rose-dark)",
+              textDecoration:
+                "underline",
+              textUnderlineOffset:
+                "2px",
+              fontWeight: 600,
+            }}
+          >
+            Check our Design Tier Guide →
+          </a>
+        </div>
+
+        {/* CUSTOMER DETAILS */}
         <h2
           className="serif"
           style={{
-            marginTop: 35,
+            marginTop:
+              35,
           }}
         >
           2. Your details
@@ -1000,17 +910,13 @@ export default function BookingForm({
             onChange={(
               event
             ) =>
-              setForm(
-                (
-                  current
-                ) => ({
-                  ...current,
-                  customer_name:
-                    event
-                      .target
-                      .value,
-                })
-              )
+              setForm({
+                ...form,
+                customer_name:
+                  event
+                    .target
+                    .value,
+              })
             }
           />
         </div>
@@ -1028,17 +934,13 @@ export default function BookingForm({
             onChange={(
               event
             ) =>
-              setForm(
-                (
-                  current
-                ) => ({
-                  ...current,
-                  mobile_number:
-                    event
-                      .target
-                      .value,
-                })
-              )
+              setForm({
+                ...form,
+                mobile_number:
+                  event
+                    .target
+                    .value,
+              })
             }
           />
         </div>
@@ -1055,17 +957,13 @@ export default function BookingForm({
             onChange={(
               event
             ) =>
-              setForm(
-                (
-                  current
-                ) => ({
-                  ...current,
-                  social_handle:
-                    event
-                      .target
-                      .value,
-                })
-              )
+              setForm({
+                ...form,
+                social_handle:
+                  event
+                    .target
+                    .value,
+              })
             }
           />
         </div>
@@ -1074,234 +972,423 @@ export default function BookingForm({
         <h2
           className="serif"
           style={{
-            marginTop: 35,
+            marginTop:
+              35,
           }}
         >
-          3. Choose your appointment
+          3. Appointment
         </h2>
 
-        {!items.length ? (
-          <div className="notice">
-            Select a service first to
-            see your available dates
-            and times.
-          </div>
-        ) : (
-          <>
-            <div className="booking-calendar">
-              <div className="calendar-header">
-                <button
-                  type="button"
-                  className="calendar-nav"
-                  onClick={
-                    previousMonth
-                  }
-                >
-                  ‹
-                </button>
+        <div
+          style={{
+            border:
+              "1px solid var(--line)",
+            borderRadius: 16,
+            padding: 16,
+            marginTop: 12,
+            background:
+              "var(--card)",
+          }}
+        >
+          <div
+            style={{
+              display:
+                "flex",
+              justifyContent:
+                "space-between",
+              alignItems:
+                "center",
+              gap: 12,
+              marginBottom:
+                14,
+            }}
+          >
+            <button
+              type="button"
+              className="btn secondary small"
+              disabled={
+                !canGoPrevious ||
+                availabilityLoading
+              }
+              onClick={() =>
+                setCalendarMonth(
+                  previousMonth
+                )
+              }
+            >
+              ←
+            </button>
 
-                <div className="calendar-month">
-                  {monthText(
-                    month
-                  )}
-                </div>
+            <strong
+              style={{
+                fontSize:
+                  16,
+                textAlign:
+                  "center",
+              }}
+            >
+              {formatMonth(
+                calendarMonth
+              )}
+            </strong>
 
-                <button
-                  type="button"
-                  className="calendar-nav"
-                  onClick={
-                    nextMonth
-                  }
-                >
-                  ›
-                </button>
-              </div>
-
-              <div className="calendar-weekdays">
-                {[
-                  "Sun",
-                  "Mon",
-                  "Tue",
-                  "Wed",
-                  "Thu",
-                  "Fri",
-                  "Sat",
-                ].map(
-                  (day) => (
-                    <div
-                      key={
-                        day
-                      }
-                    >
-                      {day}
-                    </div>
+            <button
+              type="button"
+              className="btn secondary small"
+              disabled={
+                availabilityLoading
+              }
+              onClick={() =>
+                setCalendarMonth(
+                  new Date(
+                    calendarMonth.getFullYear(),
+                    calendarMonth.getMonth() +
+                      1,
+                    1
                   )
-                )}
-              </div>
+                )
+              }
+            >
+              →
+            </button>
+          </div>
 
-              <div className="calendar-days">
-                {cells.map(
-                  (
-                    cell,
-                    index
-                  ) => {
-                    if (!cell) {
-                      return (
-                        <div
-                          key={`empty-${index}`}
-                          className="calendar-day empty"
-                        />
-                      );
+          <div
+            style={{
+              display:
+                "grid",
+              gridTemplateColumns:
+                "repeat(7, minmax(0, 1fr))",
+              gap: 5,
+              marginBottom:
+                6,
+            }}
+          >
+            {WEEKDAYS.map(
+              (day) => (
+                <div
+                  key={day}
+                  className="muted"
+                  style={{
+                    textAlign:
+                      "center",
+                    fontSize:
+                      11,
+                    fontWeight:
+                      600,
+                    padding:
+                      "5px 0",
+                  }}
+                >
+                  {day}
+                </div>
+              )
+            )}
+
+            {calendarCells.map(
+              (
+                cell,
+                index
+              ) => {
+                if (!cell) {
+                  return (
+                    <div
+                      key={`blank-${index}`}
+                    />
+                  );
+                }
+
+                const key =
+                  dateKey(
+                    cell
+                  );
+
+                const day =
+                  availability[
+                    key
+                  ];
+
+                const isPast =
+                  key <
+                  todayKey;
+
+                const isAvailable =
+                  !isPast &&
+                  Boolean(
+                    day?.available
+                  );
+
+                const isSelected =
+                  form.preferred_date ===
+                  key;
+
+                return (
+                  <button
+                    type="button"
+                    key={key}
+                    disabled={
+                      !isAvailable ||
+                      availabilityLoading
                     }
+                    onClick={() =>
+                      chooseDate(
+                        key
+                      )
+                    }
+                    aria-label={`${cell.toLocaleDateString(
+                      "en-PH",
+                      {
+                        month:
+                          "long",
+                        day:
+                          "numeric",
+                        year:
+                          "numeric",
+                      }
+                    )}${
+                      isAvailable
+                        ? ", available"
+                        : ", unavailable"
+                    }`}
+                    style={{
+                      width:
+                        "100%",
+                      minWidth: 0,
+                      aspectRatio:
+                        "1 / 1",
+                      border:
+                        isSelected
+                          ? "2px solid var(--ink)"
+                          : "1px solid var(--line)",
+                      borderRadius:
+                        10,
+                      background:
+                        isSelected
+                          ? "var(--ink)"
+                          : isAvailable
+                            ? "var(--soft)"
+                            : "transparent",
+                      color:
+                        isSelected
+                          ? "white"
+                          : isAvailable
+                            ? "var(--ink)"
+                            : "var(--muted)",
+                      opacity:
+                        isPast ||
+                        (!isAvailable &&
+                          !isSelected)
+                          ? 0.45
+                          : 1,
+                      cursor:
+                        isAvailable
+                          ? "pointer"
+                          : "default",
+                      fontSize:
+                        13,
+                      fontWeight:
+                        isSelected ||
+                        key ===
+                          todayKey
+                          ? 700
+                          : 500,
+                      padding: 0,
+                    }}
+                  >
+                    {cell.getDate()}
+                  </button>
+                );
+              }
+            )}
+          </div>
 
-                    const slots =
-                      availability[
-                        cell.date
-                      ] || [];
+          <div
+            style={{
+              display:
+                "flex",
+              flexWrap:
+                "wrap",
+              gap: 10,
+              marginTop:
+                12,
+              fontSize:
+                12,
+            }}
+            className="muted"
+          >
+            <span>
+              ● Available
+            </span>
+            <span>
+              ● Unavailable
+            </span>
+          </div>
 
-                    const available =
-                      cell.date >=
-                        today &&
-                      slots.length >
-                        0;
-
-                    const selectedDate =
-                      form.preferred_date ===
-                      cell.date;
-
-                    return (
-                      <button
-                        key={
-                          cell.date
-                        }
-                        type="button"
-                        disabled={
-                          !available ||
-                          loadingAvailability
-                        }
-                        className={[
-                          "calendar-day",
-                          available
-                            ? "available"
-                            : "unavailable",
-                          selectedDate
-                            ? "selected"
-                            : "",
-                        ]
-                          .filter(
-                            Boolean
-                          )
-                          .join(
-                            " "
-                          )}
-                        onClick={() =>
-                          chooseDate(
-                            cell.date
-                          )
-                        }
-                      >
-                        {
-                          cell.day
-                        }
-
-                        {available && (
-                          <i />
-                        )}
-                      </button>
-                    );
-                  }
-                )}
-              </div>
+          {availabilityError && (
+            <div
+              className="notice"
+              style={{
+                marginTop:
+                  12,
+              }}
+            >
+              {availabilityError}
             </div>
+          )}
 
-            {loadingAvailability && (
+          {availabilityLoading && (
+            <p
+              className="muted"
+              style={{
+                marginTop:
+                  14,
+              }}
+            >
+              Checking available
+              dates…
+            </p>
+          )}
+
+          {!availabilityLoading &&
+            !items.length && (
               <div
                 className="notice"
                 style={{
-                  marginTop: 12,
+                  marginTop:
+                    14,
                 }}
               >
-                Checking available
-                appointments…
+                Select at least one
+                service first so we
+                can show the correct
+                available time slots.
               </div>
             )}
 
-            {form.preferred_date &&
-              !loadingAvailability && (
-                <div
+          {form.preferred_date &&
+            availability[
+              form
+                .preferred_date
+            ]?.available && (
+              <div
+                style={{
+                  marginTop:
+                    18,
+                  paddingTop:
+                    16,
+                  borderTop:
+                    "1px solid var(--line)",
+                }}
+              >
+                <div className="kicker">
+                  Available times
+                </div>
+
+                <strong
                   style={{
-                    marginTop: 18,
+                    display:
+                      "block",
+                    marginTop:
+                      4,
+                    marginBottom:
+                      12,
                   }}
                 >
-                  <div className="kicker">
-                    Available times
-                  </div>
+                  {formatSelectedDate(
+                    form.preferred_date
+                  )}
+                </strong>
 
-                  <p
-                    style={{
-                      margin:
-                        "3px 0 10px",
-                    }}
-                  >
-                    <strong>
-                      {readableDate(
-                        form.preferred_date
-                      )}
-                    </strong>
-                  </p>
+                <div
+                  style={{
+                    display:
+                      "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(110px, 1fr))",
+                    gap: 8,
+                  }}
+                >
+                  {availability[
+                    form
+                      .preferred_date
+                  ].slots.map(
+                    (slot) => {
+                      const selectedTime =
+                        form.preferred_time ===
+                        slot;
 
-                  {selectedSlots.length ? (
-                    <div className="time-slot-grid">
-                      {selectedSlots.map(
-                        (
-                          slot
-                        ) => (
-                          <button
-                            key={
-                              slot
-                            }
-                            type="button"
-                            className={
-                              form.preferred_time ===
-                              slot
-                                ? "time-slot selected"
-                                : "time-slot"
-                            }
-                            onClick={() =>
-                              setForm(
-                                (
-                                  current
-                                ) => ({
-                                  ...current,
-                                  preferred_time:
-                                    slot,
-                                })
-                              )
-                            }
-                          >
-                            {readableTime(
-                              slot
-                            )}
-                          </button>
-                        )
-                      )}
-                    </div>
-                  ) : (
-                    <div className="notice">
-                      No available times remain
-                      for this date.
-                    </div>
+                      return (
+                        <button
+                          type="button"
+                          key={
+                            slot
+                          }
+                          className={
+                            selectedTime
+                              ? "btn small"
+                              : "btn secondary small"
+                          }
+                          onClick={() =>
+                            setForm(
+                              (
+                                current
+                              ) => ({
+                                ...current,
+                                preferred_time:
+                                  slot,
+                              })
+                            )
+                          }
+                        >
+                          {slot}
+                        </button>
+                      );
+                    }
                   )}
                 </div>
-              )}
-          </>
-        )}
+
+                {!availability[
+                  form
+                    .preferred_date
+                ].slots.length && (
+                  <div
+                    className="notice"
+                    style={{
+                      marginTop:
+                        12,
+                    }}
+                  >
+                    No available time
+                    slots remain for
+                    the services selected
+                    on this date.
+                  </div>
+                )}
+              </div>
+            )}
+        </div>
+
+        <div
+          className="notice"
+          style={{
+            marginTop:
+              12,
+          }}
+        >
+          Available dates and times are
+          based on the Nailtech's current
+          availability. Your selected
+          date/time is still a request and
+          will only be confirmed after
+          Nailtech approval.
+        </div>
 
         {/* REMOVAL */}
         <h2
           className="serif"
           style={{
-            marginTop: 35,
+            marginTop:
+              35,
           }}
         >
           4. Removal
@@ -1315,17 +1402,13 @@ export default function BookingForm({
             onChange={(
               event
             ) =>
-              setForm(
-                (
-                  current
-                ) => ({
-                  ...current,
-                  removal:
-                    event
-                      .target
-                      .value,
-                })
-              )
+              setForm({
+                ...form,
+                removal:
+                  event
+                    .target
+                    .value,
+              })
             }
           >
             {(
@@ -1347,18 +1430,21 @@ export default function BookingForm({
                       option
                     }
                   >
-                    {option}
+                    {
+                      option
+                    }
                   </option>
                 )
               )}
           </select>
         </div>
 
-        {/* PROMOS / DISCOUNTS */}
+        {/* PROMO / DISCOUNT */}
         <h2
           className="serif"
           style={{
-            marginTop: 35,
+            marginTop:
+              35,
           }}
         >
           5. Promo / Discount
@@ -1366,7 +1452,7 @@ export default function BookingForm({
 
         <div className="field">
           <label>
-            Choose one
+            Choose one option
           </label>
 
           <select
@@ -1377,16 +1463,20 @@ export default function BookingForm({
               event
             ) => {
               const value =
-                event.target
+                event
+                  .target
                   .value;
 
               setForm(
-                (
-                  current
-                ) => ({
+                (current) => ({
                   ...current,
                   promo_choice:
                     value,
+                  discount_category:
+                    value ===
+                    "student_pwd_sc"
+                      ? current.discount_category
+                      : "",
                   referral_name:
                     value ===
                     "referral"
@@ -1399,47 +1489,29 @@ export default function BookingForm({
                 value !==
                 "student_pwd_sc"
               ) {
-                setStudentIdFile(
+                setStudentValidId(
                   null
                 );
-
-                setStudentRegistrationFile(
+                setStudentRegistration(
                   null
-                );
-              }
-
-              if (
-                value !==
-                "referral"
-              ) {
-                setForm(
-                  (
-                    current
-                  ) => ({
-                    ...current,
-                    referral_name:
-                      "",
-                  })
                 );
               }
             }}
           >
             <option value="">
-              Not Applicable
+              Select a promo or discount
             </option>
 
             {promos.length >
               0 && (
               <optgroup label="Current Promo">
                 {promos.map(
-                  (
-                    promo
-                  ) => (
+                  (promo) => (
                     <option
+                      value={`promo:${promo.id}`}
                       key={
                         promo.id
                       }
-                      value={`promo:${promo.id}`}
                     >
                       {
                         promo.name
@@ -1450,19 +1522,18 @@ export default function BookingForm({
               </optgroup>
             )}
 
-            <optgroup label="Permanent">
+            <optgroup label="Permanent Discounts">
               <option value="first_time">
-                First-time Booking Discount
-                — 5% off regular rates
+                First-time Booking Discount — 5%
               </option>
-
               <option value="student_pwd_sc">
-                Student / PWD / SC Discount
-                — 5%
+                Student / PWD / SC Discount — 5%
               </option>
-
               <option value="referral">
                 Referral Program
+              </option>
+              <option value="none">
+                Not Applicable
               </option>
             </optgroup>
           </select>
@@ -1473,124 +1544,189 @@ export default function BookingForm({
           <div
             className="notice"
             style={{
-              marginTop: 10,
+              marginTop:
+                10,
             }}
           >
-            <strong>
-              First-time Booking Discount
-            </strong>
-
-            <br />
-
-            5% discount on regular rates
-            only. This discount cannot be
-            combined with a current promo.
+            5% applies to regular rates
+            only and cannot be combined
+            with a current promo.
           </div>
         )}
 
-        {isStudentDiscount && (
+        {form.promo_choice ===
+          "student_pwd_sc" && (
           <div
-            className="card"
             style={{
-              marginTop: 12,
+              marginTop:
+                12,
+              padding:
+                "14px 16px",
+              border:
+                "1px solid var(--line)",
+              borderRadius:
+                12,
               background:
-                "#fcf7f4",
+                "var(--soft)",
             }}
           >
-            <div className="kicker">
-              Verification required
-            </div>
+            <strong>
+              Student / PWD / SC Discount — 5%
+            </strong>
 
-            <h3
-              className="serif"
-              style={{
-                margin:
-                  "4px 0 8px",
-              }}
-            >
-              Student / PWD / SC Discount
-            </h3>
-
-            <p
+            <div
               className="muted"
               style={{
-                marginTop: 0,
+                marginTop:
+                  4,
+                fontSize:
+                  13,
+                lineHeight:
+                  1.5,
               }}
             >
-              5% discount. Please upload
-              <strong>
-                {" "}
-                BOTH
-              </strong>{" "}
-              documents below. The studio
-              will verify eligibility before
-              the discount is finalized.
-            </p>
+              A valid ID is required for
+              verification.
+            </div>
 
-            <div className="field">
+            <div
+              className="field"
+              style={{
+                marginTop:
+                  12,
+              }}
+            >
+              <label>
+                Discount Type *
+              </label>
+
+              <select
+                value={
+                  form.discount_category
+                }
+                onChange={(
+                  event
+                ) => {
+                  const value =
+                    event.target.value;
+
+                  setForm(
+                    (current) => ({
+                      ...current,
+                      discount_category:
+                        value,
+                    })
+                  );
+
+                  if (
+                    value !== "student"
+                  ) {
+                    setStudentRegistration(
+                      null
+                    );
+                  }
+                }}
+              >
+                <option value="">
+                  Select one
+                </option>
+                <option value="student">
+                  Student
+                </option>
+                <option value="pwd">
+                  PWD
+                </option>
+                <option value="senior_citizen">
+                  Senior Citizen
+                </option>
+              </select>
+            </div>
+
+            <div
+              className="field"
+              style={{
+                marginTop:
+                  10,
+              }}
+            >
               <label>
                 Valid ID *
               </label>
 
               <input
                 type="file"
-                accept=".jpg,.jpeg,.png,.heic,.pdf,image/jpeg,image/png,image/heic,application/pdf"
+                accept=".jpg,.jpeg,.png,.heic,.heif,.pdf,image/jpeg,image/png,application/pdf"
                 onChange={(
                   event
                 ) =>
-                  setStudentIdFile(
-                    event
-                      .target
-                      .files?.[0] ||
+                  setStudentValidId(
+                    event.target.files?.[0] ||
                       null
                   )
                 }
               />
-
-              <div className="muted">
-                {studentIdFile
-                  ? studentIdFile.name
-                  : "Upload your valid ID."}
-              </div>
             </div>
 
-            <div className="field">
-              <label>
-                Current Registration Card / Registration Form *
-              </label>
+            {form.discount_category ===
+              "student" && (
+              <div
+                className="field"
+                style={{
+                  marginTop:
+                    10,
+                }}
+              >
+                <label>
+                  Current Registration Card/Form
+                  <span className="muted">
+                    {" "}
+                    (Optional)
+                  </span>
+                </label>
 
-              <input
-                type="file"
-                accept=".jpg,.jpeg,.png,.heic,.pdf,image/jpeg,image/png,image/heic,application/pdf"
-                onChange={(
-                  event
-                ) =>
-                  setStudentRegistrationFile(
+                <input
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.heic,.heif,.pdf,image/jpeg,image/png,application/pdf"
+                  onChange={(
                     event
-                      .target
-                      .files?.[0] ||
-                      null
-                  )
-                }
-              />
+                  ) =>
+                    setStudentRegistration(
+                      event.target.files?.[0] ||
+                        null
+                    )
+                  }
+                />
 
-              <div className="muted">
-                {studentRegistrationFile
-                  ? studentRegistrationFile.name
-                  : "Upload your current Registration Card/Form showing the current School Year."}
+                <div
+                  className="muted"
+                  style={{
+                    marginTop:
+                      5,
+                    fontSize:
+                      12,
+                  }}
+                >
+                  Upload this only if you are a student.
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
-        {isReferral && (
-          <div className="field">
+        {form.promo_choice ===
+          "referral" && (
+          <div
+            className="field"
+            style={{
+              marginTop:
+                10,
+            }}
+          >
             <label>
-              Who referred you? *
+              Name of the person who referred you *
             </label>
 
             <input
-              placeholder="Enter the name of the person who referred you"
               value={
                 form.referral_name
               }
@@ -1598,9 +1734,7 @@ export default function BookingForm({
                 event
               ) =>
                 setForm(
-                  (
-                    current
-                  ) => ({
+                  (current) => ({
                     ...current,
                     referral_name:
                       event
@@ -1609,27 +1743,8 @@ export default function BookingForm({
                   })
                 )
               }
+              placeholder="Enter their name"
             />
-          </div>
-        )}
-
-        {isPromo && (
-          <div
-            className="notice"
-            style={{
-              marginTop: 10,
-            }}
-          >
-            <strong>
-              {currentPromo.name}
-            </strong>
-
-            {currentPromo.description && (
-              <>
-                <br />
-                {currentPromo.description}
-              </>
-            )}
           </div>
         )}
 
@@ -1637,7 +1752,8 @@ export default function BookingForm({
         <h2
           className="serif"
           style={{
-            marginTop: 35,
+            marginTop:
+              35,
           }}
         >
           6. Nail Inspiration
@@ -1645,18 +1761,18 @@ export default function BookingForm({
 
         <div className="field">
           <label>
-            Nail Inspiration — File Upload
+            Upload Your Nail Inspiration
           </label>
 
           <div className="upload">
             <input
               type="file"
               multiple
-              accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png,image/heic"
+              accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png"
               onChange={(
                 event
               ) =>
-                setInspirationFiles(
+                setFiles(
                   Array.from(
                     event
                       .target
@@ -1673,12 +1789,13 @@ export default function BookingForm({
             <div
               className="muted"
               style={{
-                marginTop: 8,
+                marginTop:
+                  8,
               }}
             >
-              {inspirationFiles.length
-                ? `${inspirationFiles.length} file(s) selected`
-                : "JPG, JPEG, PNG; HEIC where supported."}
+              {files.length
+                ? `${files.length} file(s) selected`
+                : "Design Inspiration: Please note that inspiration photos serve as a design reference only. While we aim to achieve the closest possible result, exact replication is not guaranteed due to differences in nail shape, length, condition, materials, and application technique."}
             </div>
           </div>
         </div>
@@ -1687,7 +1804,8 @@ export default function BookingForm({
         <h2
           className="serif"
           style={{
-            marginTop: 35,
+            marginTop:
+              35,
           }}
         >
           7. Additional Requests / Notes
@@ -1702,26 +1820,25 @@ export default function BookingForm({
             onChange={(
               event
             ) =>
-              setForm(
-                (
-                  current
-                ) => ({
-                  ...current,
-                  notes:
-                    event
-                      .target
-                      .value,
-                })
-              )
+              setForm({
+                ...form,
+                notes:
+                  event
+                    .target
+                    .value,
+              })
             }
           />
         </div>
 
-        {/* POLICY */}
+        {/* POLICY ACKNOWLEDGMENT */}
         <div
+          className="policy-acknowledgment"
           style={{
-            marginTop: 35,
-            paddingTop: 22,
+            marginTop:
+              35,
+            paddingTop:
+              22,
             borderTop:
               "1px solid var(--line)",
           }}
@@ -1734,8 +1851,10 @@ export default function BookingForm({
               alignItems:
                 "flex-start",
               margin: 0,
-              fontWeight: 400,
-              fontSize: 13,
+              fontWeight:
+                400,
+              fontSize:
+                13,
               lineHeight:
                 1.55,
             }}
@@ -1748,31 +1867,28 @@ export default function BookingForm({
               onChange={(
                 event
               ) =>
-                setForm(
-                  (
-                    current
-                  ) => ({
-                    ...current,
-                    terms_accepted:
-                      event
-                        .target
-                        .checked,
-                  })
-                )
+                setForm({
+                  ...form,
+                  terms_accepted:
+                    event
+                      .target
+                      .checked,
+                })
               }
               style={{
-                marginTop: 3,
+                marginTop:
+                  3,
                 flex:
                   "0 0 auto",
               }}
             />
 
             <span>
-              I have read and agree to
-              the studio’s policies
-              regarding booking,
-              payment, pricing,
-              rescheduling,
+              I have read and agree
+              to the studio’s
+              policies regarding
+              booking, payment,
+              pricing, rescheduling,
               cancellations, late
               arrivals, warranty,
               studio guidelines, and
@@ -1798,14 +1914,15 @@ export default function BookingForm({
           </label>
         </div>
 
-        {error && (
+        {err && (
           <div
             className="notice"
             style={{
-              marginTop: 15,
+              marginTop:
+                15,
             }}
           >
-            {error}
+            {err}
           </div>
         )}
 
@@ -1815,16 +1932,14 @@ export default function BookingForm({
               "flex",
             justifyContent:
               "flex-end",
-            marginTop: 22,
+            marginTop:
+              22,
           }}
         >
           <button
-            type="button"
             className="btn"
             disabled={
-              busy ||
-              !form.preferred_date ||
-              !form.preferred_time
+              busy
             }
             onClick={
               submit
@@ -1892,17 +2007,40 @@ export default function BookingForm({
           )
         ) : (
           <p className="muted">
-            Choose services to see
-            your request total.
+            Choose services to see your
+            request total.
           </p>
         )}
+
+        <div
+          style={{
+            display:
+              "flex",
+            justifyContent:
+              "space-between",
+            marginTop:
+              15,
+          }}
+        >
+          <strong>
+            Estimated total
+          </strong>
+
+          <strong>
+            {peso(
+              total
+            )}
+          </strong>
+        </div>
 
         {form.preferred_date &&
           form.preferred_time && (
             <div
               style={{
-                marginTop: 15,
-                paddingTop: 15,
+                marginTop:
+                  16,
+                paddingTop:
+                  16,
                 borderTop:
                   "1px solid var(--line)",
               }}
@@ -1912,83 +2050,19 @@ export default function BookingForm({
               </div>
 
               <strong>
-                {readableDate(
+                {formatSelectedDate(
                   form.preferred_date
                 )}
               </strong>
 
               <div>
-                {readableTime(
+                at{" "}
+                {
                   form.preferred_time
-                )}
+                }
               </div>
             </div>
           )}
-
-        {form.promo_choice && (
-          <div
-            style={{
-              marginTop: 15,
-              paddingTop: 15,
-              borderTop:
-                "1px solid var(--line)",
-            }}
-          >
-            <div className="muted">
-              Discount
-            </div>
-
-            <strong>
-              {promoLabel}
-            </strong>
-
-            {discount > 0 && (
-              <div>
-                -{" "}
-                {peso(
-                  discount
-                )}
-              </div>
-            )}
-
-            {isReferral &&
-              form.referral_name && (
-                <div className="muted">
-                  Referred by:{" "}
-                  {
-                    form.referral_name
-                  }
-                </div>
-              )}
-
-            {isStudentDiscount && (
-              <div className="muted">
-                Verification required
-              </div>
-            )}
-          </div>
-        )}
-
-        <div
-          style={{
-            display:
-              "flex",
-            justifyContent:
-              "space-between",
-            gap: 10,
-            marginTop: 15,
-          }}
-        >
-          <strong>
-            Estimated total
-          </strong>
-
-          <strong>
-            {peso(
-              estimatedTotal
-            )}
-          </strong>
-        </div>
       </aside>
     </div>
   );
