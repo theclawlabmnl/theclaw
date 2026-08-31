@@ -1,0 +1,2 @@
+export const dynamic = "force-dynamic";
+import {supabaseAdmin}from"@/lib/supabase-admin";import PromoManager from "@/components/PromoManager";export default async function Promos(){const db=supabaseAdmin();const{data}=await db.from("promos").select("*").order("created_at",{ascending:false});return <><div className="section-head"><div><div className="kicker">Marketing</div><h1 className="serif">Promos</h1></div></div><PromoManager promos={data||[]}/></>}

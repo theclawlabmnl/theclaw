@@ -1,0 +1,2 @@
+export const dynamic = "force-dynamic";
+import {supabaseAdmin} from "@/lib/supabase-admin";import ServiceManager from "@/components/ServiceManager";export default async function Services(){const db=supabaseAdmin();const{data}=await db.from("services").select("*,service_variations(*)").order("sort_order");return <><div className="section-head"><div><div className="kicker">Menu editor</div><h1 className="serif">Services & Variations</h1></div></div><ServiceManager services={data||[]}/></>}

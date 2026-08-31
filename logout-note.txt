@@ -1,0 +1,1 @@
+Use Supabase Auth's session controls for logout; add a UI button if desired.

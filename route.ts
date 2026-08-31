@@ -1,0 +1,27 @@
+import {NextRequest,NextResponse} from "next/server";import {supabaseAdmin} from "@/lib/supabase-admin";import {makeToken,sanitizeFilename} from "@/lib/utils";
+const MAX=8, MAX_MB=8; const allowed=["image/jpeg","image/png","image/heic","image/heif"];
+export async function POST(req:NextRequest){try{const fd=await req.formData();const payload=JSON.parse(String(fd.get("payload")||"{}"));if(!payload.customer_name||!payload.mobile_number||!payload.preferred_date||!payload.preferred_time||!payload.terms_accepted||!payload.services?.length)return NextResponse.json({error:"Required booking fields are missing."},{status:400});if(payload.services.length>20)return NextResponse.json({error:"Too many services."},{status:400});const db=supabaseAdmin();const token=makeToken(32),ref=`TCL-${new Date().getFullYear()}-${Math.floor(100000+Math.random()*900000)}`;const files=fd.getAll("inspiration").filter(x=>x instanceof File) as File[];if(files.length>MAX)return NextResponse.json({error:"Maximum 8 inspiration images."},{status:400});for(const f of files)if(f.size>MAX_MB*1024*1024||!allowed.includes(f.type))return NextResponse.json({error:"Invalid inspiration file."},{status:400});
+let promoName=null;if(payload.promo_id){const{data:p}=await db.from("promos").select("name").eq("id",payload.promo_id).single();promoName=p?.name||null}
+const d = new Date(`${payload.preferred_date}T00:00:00`);
+const dow = d.getDay();
+const requestedMinutes = Number(String(payload.preferred_time).split(":")[0]) * 60 + Number(String(payload.preferred_time).split(":")[1]);
+const totalDuration = payload.services.reduce((a:any,x:any)=>a+Number(x.duration_minutes||0),0);
+const {data:rule} = await db.from("availability_rules").select("*").eq("day_of_week",dow).eq("active",true).maybeSingle();
+const {data:overrides} = await db.from("availability_overrides").select("*").eq("override_date",payload.preferred_date);
+const opens = (overrides||[]).filter((x:any)=>x.kind==="open");
+const blocks = (overrides||[]).filter((x:any)=>x.kind==="block");
+const toMin=(v:string)=>{const [h,m]=String(v).slice(0,5).split(":").map(Number);return h*60+m};
+const fits=(x:any)=>requestedMinutes>=toMin(x.start_time)&&requestedMinutes+totalDuration<=toMin(x.end_time);
+const hasOpen = opens.some(fits);
+const baseFits = rule?.is_available && rule.start_time && rule.end_time && requestedMinutes>=toMin(rule.start_time)&&requestedMinutes+totalDuration<=toMin(rule.end_time);
+const blocked = blocks.some((x:any)=>requestedMinutes<toMin(x.end_time)&&requestedMinutes+totalDuration>toMin(x.start_time));
+if ((!baseFits && !hasOpen) || blocked) return NextResponse.json({error:"That requested time is outside current availability. Please choose another time."},{status:409});
+const {data:existing} = await db.from("bookings").select("preferred_time").eq("preferred_date",payload.preferred_date).in("status",["pending","approved","payment_submitted","confirmed"]);
+const overlaps = (existing||[]).some((x:any)=>toMin(x.preferred_time)===requestedMinutes);
+if (overlaps) return NextResponse.json({error:"That requested start time is already being held by another booking request."},{status:409});
+const estimated=payload.services.reduce((a:any,x:any)=>a+Number(x.price||0),0);
+const{data:b,error}=await db.from("bookings").insert({reference_code:ref,access_token:token,customer_name:String(payload.customer_name).slice(0,120),mobile_number:String(payload.mobile_number).slice(0,40),social_handle:String(payload.social_handle||"").slice(0,120),preferred_date:payload.preferred_date,preferred_time:payload.preferred_time,removal:String(payload.removal||"None").slice(0,120),promo_id:payload.promo_id||null,promo_name:promoName,notes:String(payload.notes||"").slice(0,3000),terms_accepted:true,status:"draft",estimated_total:estimated,inspiration_count:files.length}).select("id").single();if(error)throw error;
+for(const x of payload.services)await db.from("booking_services").insert({booking_id:b.id,service_id:x.service_id,variation_id:x.variation_id||null,service_name:x.service_name,variation_name:x.variation_name||null,price:x.price,duration_minutes:x.duration_minutes});
+for(const f of files){const path=`${b.id}/${makeToken(10)}-${sanitizeFilename(f.name)}`;await db.storage.from("nail-inspiration").upload(path,await f.arrayBuffer(),{contentType:f.type,upsert:false});await db.from("booking_files").insert({booking_id:b.id,bucket:"nail-inspiration",path,kind:"inspiration"});}
+return NextResponse.json({token});}catch(e:any){return NextResponse.json({error:e.message||"Unable to create booking."},{status:500})}}
+export async function PATCH(req:NextRequest){const token=new URL(req.url).searchParams.get("token");if(!token)return NextResponse.json({error:"Missing token"},{status:400});const db=supabaseAdmin();const{data:b}=await db.from("bookings").select("id,status").eq("access_token",token).single();if(!b||b.status!=="draft")return NextResponse.json({error:"Request is not editable/submittable."},{status:400});const{error}=await db.from("bookings").update({status:"pending",submitted_at:new Date().toISOString()}).eq("id",b.id);if(error)return NextResponse.json({error:error.message},{status:500});return NextResponse.json({ok:true})}

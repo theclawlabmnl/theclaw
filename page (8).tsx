@@ -1,0 +1,2 @@
+export const dynamic = "force-dynamic";
+import {supabaseAdmin}from"@/lib/supabase-admin";import SettingsForm from"@/components/SettingsForm";export default async function Settings(){const db=supabaseAdmin();const{data}=await db.from("site_settings").select("key,value");return <><div className="section-head"><div><div className="kicker">Configure the studio</div><h1 className="serif">Payment & Site Settings</h1></div></div><SettingsForm settings={Object.fromEntries((data||[]).map(x=>[x.key,x.value]))}/></>}

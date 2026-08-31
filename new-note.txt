@@ -1,0 +1,1 @@
+Variation CRUD is intentionally kept configurable through Supabase schema/API; extend the UI with create/delete controls as the exact menu is finalized.

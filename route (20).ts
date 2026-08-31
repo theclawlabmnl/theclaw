@@ -1,0 +1,1 @@
+import {NextResponse} from "next/server";import {supabaseServer} from "@/lib/supabase-server";export async function POST(){const s=await supabaseServer();await s.auth.signOut();return NextResponse.json({ok:true})}

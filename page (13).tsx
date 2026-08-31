@@ -1,0 +1,2 @@
+export const dynamic = "force-dynamic";
+import {supabaseAdmin}from"@/lib/supabase-admin";import ReviewModeration from "@/components/ReviewModeration";export default async function Reviews(){const db=supabaseAdmin();const{data}=await db.from("reviews").select("*").order("created_at",{ascending:false});return <><div className="section-head"><div><div className="kicker">Client love</div><h1 className="serif">Review moderation</h1></div></div><ReviewModeration reviews={data||[]}/></>}
