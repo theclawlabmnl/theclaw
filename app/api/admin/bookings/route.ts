@@ -41,15 +41,15 @@ const PAYMENT_METHODS = [
  * The timer starts from approved_at,
  * NOT from the original booking request.
  */
-export const PAYMENT_DEADLINE_HOURS = 3;
+ const PAYMENT_DEADLINE_HOURS = 3;
 
-export const PAYMENT_DEADLINE_MS =
+ const PAYMENT_DEADLINE_MS =
   PAYMENT_DEADLINE_HOURS * 60 * 60 * 1000;
 
-export const PAYMENT_DEADLINE_REASON =
+ const PAYMENT_DEADLINE_REASON =
   "Payment deadline expired";
 
-export const PAYMENT_DEADLINE_NOTE =
+ const PAYMENT_DEADLINE_NOTE =
   "Booking was automatically cancelled because payment was not submitted within 3 hours of approval.";
 
 async function getAdminDb() {
@@ -88,7 +88,7 @@ function jsonError(error: string, status = 400) {
  * Returns the payment deadline for an
  * approved booking.
  */
-export function getPaymentDeadline(
+ function getPaymentDeadline(
   approvedAt: string | null | undefined
 ): Date | null {
   if (!approvedAt) {
@@ -110,7 +110,7 @@ export function getPaymentDeadline(
  * Checks whether an approved booking's
  * payment deadline has passed.
  */
-export function isPaymentDeadlineExpired(
+ function isPaymentDeadlineExpired(
   approvedAt: string | null | undefined,
   now = new Date()
 ): boolean {
@@ -147,7 +147,7 @@ export function isPaymentDeadlineExpired(
  *
  * will NOT be cancelled.
  */
-export async function expireOverdueApprovedBookings(
+ async function expireOverdueApprovedBookings(
   db: ReturnType<typeof supabaseAdmin>,
   now = new Date()
 ) {
