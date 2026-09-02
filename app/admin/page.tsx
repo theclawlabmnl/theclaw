@@ -84,14 +84,16 @@ function formatMoney(value: number) {
 export default async function Admin() {
   const db = supabaseAdmin();
 
-  const countResults = await Promise.all(
-    dashboardCards.map(async (item) => {
-      const status = item.href.includes("status=")
-        ? item.href.split("status=")[1]
-        : null;
+  const bookingStatuses = [
+    "pending",
+    "approved",
+    "confirmed",
+    "completed",
+    "cancelled",
+  ] as const;
 
-      if (!status) return 0;
-
+  const bookingCountResults = await Promise.all(
+    bookingStatuses.map(async (status) => {
       const { count, error } = await db
         .from("bookings")
         .select("id", {
@@ -102,14 +104,14 @@ export default async function Admin() {
 
       if (error) {
         console.error(
-          "Dashboard count error:",
+          `Dashboard booking count error (${status}):`,
           error
         );
 
         return 0;
       }
 
-      return count || 0;
+      return count ?? 0;
     })
   );
 
@@ -136,9 +138,7 @@ export default async function Admin() {
     error: verifiedPaymentsError,
   } = await db
     .from("payments")
-    .select(
-      "amount,net_amount,processing_fee,status"
-    )
+    .select("amount, net_amount, processing_fee")
     .eq("status", "verified");
 
   if (verifiedPaymentsError) {
@@ -148,17 +148,15 @@ export default async function Admin() {
     );
   }
 
-  const totalNetIncome = (
-    verifiedPayments || []
-  ).reduce(
-    (total: number, payment: any) => {
-      const net = Number(
+  const totalNetIncome = (verifiedPayments ?? []).reduce(
+    (total: number, payment) => {
+      const netAmount = Number(
         payment.net_amount ??
           payment.amount ??
           0
       );
 
-      return total + Math.max(0, net);
+      return total + Math.max(0, netAmount);
     },
     0
   );
@@ -181,20 +179,14 @@ export default async function Admin() {
     );
   }
 
-  const cardCounts = dashboardCards.map(
-    (item, index) => {
-      if (
-        item.label ===
-        "Payments to verify"
-      ) {
-        return (
-          paymentVerificationCount || 0
-        );
-      }
-
-      return countResults[index] || 0;
-    }
-  );
+  const cardCounts = [
+    bookingCountResults[0] ?? 0,
+    bookingCountResults[1] ?? 0,
+    paymentVerificationCount ?? 0,
+    bookingCountResults[2] ?? 0,
+    bookingCountResults[3] ?? 0,
+    bookingCountResults[4] ?? 0,
+  ];
 
   return (
     <div className="admin-page">
@@ -267,7 +259,6 @@ export default async function Admin() {
             alignItems: "stretch",
           }}
         >
-          {/* BOOKING STATUS CARDS */}
           {dashboardCards.map(
             (item, index) => (
               <Link
@@ -275,8 +266,7 @@ export default async function Admin() {
                 href={item.href}
                 style={{
                   display: "flex",
-                  textDecoration:
-                    "none",
+                  textDecoration: "none",
                   minWidth: 0,
                 }}
               >
@@ -286,24 +276,18 @@ export default async function Admin() {
                     width: "100%",
                     minHeight: 145,
                     height: 145,
-                    padding:
-                      "18px 20px",
+                    padding: "18px 20px",
                     display: "flex",
-                    flexDirection:
-                      "column",
-                    justifyContent:
-                      "space-between",
-                    boxSizing:
-                      "border-box",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    boxSizing: "border-box",
                   }}
                 >
                   <div
                     style={{
                       display: "flex",
-                      alignItems:
-                        "center",
-                      justifyContent:
-                        "space-between",
+                      alignItems: "center",
+                      justifyContent: "space-between",
                       gap: 12,
                     }}
                   >
@@ -339,11 +323,7 @@ export default async function Admin() {
                         marginBottom: 7,
                       }}
                     >
-                      {
-                        cardCounts[
-                          index
-                        ]
-                      }
+                      {cardCounts[index]}
                     </div>
 
                     <p
@@ -351,8 +331,7 @@ export default async function Admin() {
                       style={{
                         margin: 0,
                         fontSize: 12,
-                        lineHeight:
-                          1.45,
+                        lineHeight: 1.45,
                       }}
                     >
                       {item.note}
@@ -372,21 +351,16 @@ export default async function Admin() {
               height: 145,
               padding: "18px 20px",
               display: "flex",
-              flexDirection:
-                "column",
-              justifyContent:
-                "space-between",
-              boxSizing:
-                "border-box",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              boxSizing: "border-box",
             }}
           >
             <div
               style={{
                 display: "flex",
-                alignItems:
-                  "center",
-                justifyContent:
-                  "space-between",
+                alignItems: "center",
+                justifyContent: "space-between",
                 gap: 12,
               }}
             >
@@ -421,9 +395,7 @@ export default async function Admin() {
                   marginBottom: 7,
                 }}
               >
-                {formatMoney(
-                  totalNetIncome
-                )}
+                {formatMoney(totalNetIncome)}
               </div>
 
               <p
@@ -446,8 +418,7 @@ export default async function Admin() {
             href="/admin/reviews"
             style={{
               display: "flex",
-              textDecoration:
-                "none",
+              textDecoration: "none",
               minWidth: 0,
             }}
           >
@@ -459,21 +430,16 @@ export default async function Admin() {
                 height: 145,
                 padding: "18px 20px",
                 display: "flex",
-                flexDirection:
-                  "column",
-                justifyContent:
-                  "space-between",
-                boxSizing:
-                  "border-box",
+                flexDirection: "column",
+                justifyContent: "space-between",
+                boxSizing: "border-box",
               }}
             >
               <div
                 style={{
                   display: "flex",
-                  alignItems:
-                    "center",
-                  justifyContent:
-                    "space-between",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                   gap: 12,
                 }}
               >
@@ -509,7 +475,7 @@ export default async function Admin() {
                     marginBottom: 7,
                   }}
                 >
-                  {reviewCount || 0}
+                  {reviewCount ?? 0}
                 </div>
 
                 <p
@@ -573,8 +539,7 @@ export default async function Admin() {
                 href={item.href}
                 style={{
                   display: "flex",
-                  textDecoration:
-                    "none",
+                  textDecoration: "none",
                   minWidth: 0,
                 }}
               >
@@ -584,13 +549,10 @@ export default async function Admin() {
                     width: "100%",
                     minHeight: 175,
                     height: 200,
-                    padding:
-                      "20px 22px",
+                    padding: "20px 22px",
                     display: "flex",
-                    flexDirection:
-                      "column",
-                    boxSizing:
-                      "border-box",
+                    flexDirection: "column",
+                    boxSizing: "border-box",
                   }}
                 >
                   <div className="kicker">
@@ -600,8 +562,7 @@ export default async function Admin() {
                   <h3
                     className="serif"
                     style={{
-                      margin:
-                        "6px 0 9px",
+                      margin: "6px 0 9px",
                       fontSize: 22,
                       lineHeight: 1.15,
                     }}
@@ -622,16 +583,14 @@ export default async function Admin() {
 
                   <span
                     style={{
-                      marginTop:
-                        "auto",
+                      marginTop: "auto",
                       paddingTop: 12,
                       fontSize: 12,
                       fontWeight: 600,
                       lineHeight: 1.2,
                     }}
                   >
-                    Open{" "}
-                    {item.title} →
+                    Open {item.title} →
                   </span>
                 </article>
               </Link>

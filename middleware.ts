@@ -1,5 +1,5 @@
-import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
@@ -14,9 +14,14 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
+
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => {
-            request.cookies.set(name, value);
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set({
+              name,
+              value,
+              ...options,
+            });
           });
 
           response = NextResponse.next({
@@ -35,11 +40,12 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (
-    request.nextUrl.pathname.startsWith("/admin") &&
-    request.nextUrl.pathname !== "/admin/login" &&
-    !user
-  ) {
+  const pathname = request.nextUrl.pathname;
+
+  const isAdminRoute = pathname.startsWith("/admin");
+  const isLoginPage = pathname === "/admin/login";
+
+  if (isAdminRoute && !isLoginPage && !user) {
     return NextResponse.redirect(
       new URL("/admin/login", request.url)
     );

@@ -20,18 +20,25 @@ function statusLabel(status: string) {
   switch (status) {
     case "pending":
       return "Pending";
+
     case "approved":
       return "Approved";
+
     case "payment_submitted":
       return "Payment Submitted";
+
     case "confirmed":
       return "Confirmed";
+
     case "completed":
       return "Completed";
+
     case "cancelled":
       return "Cancelled";
+
     case "rejected":
       return "Rejected";
+
     default:
       return status;
   }
@@ -41,34 +48,47 @@ function statusClass(status: string) {
   switch (status) {
     case "pending":
       return "booking-status booking-status-pending";
+
     case "approved":
       return "booking-status booking-status-approved";
+
     case "payment_submitted":
       return "booking-status booking-status-payment";
+
     case "confirmed":
       return "booking-status booking-status-confirmed";
+
     case "completed":
       return "booking-status booking-status-completed";
+
     case "cancelled":
       return "booking-status booking-status-cancelled";
+
     case "rejected":
       return "booking-status booking-status-rejected";
+
     default:
       return "booking-status";
   }
 }
 
 function formatTime12(time: string | null) {
-  if (!time) return "—";
+  if (!time) {
+    return "—";
+  }
 
   const parts = time.split(":");
 
-  if (parts.length < 2) return time;
+  if (parts.length < 2) {
+    return time;
+  }
 
   const hour = Number(parts[0]);
   const minute = parts[1];
 
-  if (Number.isNaN(hour)) return time;
+  if (Number.isNaN(hour)) {
+    return time;
+  }
 
   const suffix = hour >= 12 ? "PM" : "AM";
   const hour12 = hour % 12 || 12;
@@ -79,7 +99,9 @@ function formatTime12(time: string | null) {
 export default async function Bookings({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{
+    status?: string;
+  }>;
 }) {
   const params = await searchParams;
 
@@ -89,7 +111,9 @@ export default async function Bookings({
     ([value]) => value === requestedStatus
   );
 
-  const filter = validStatus ? requestedStatus : "";
+  const filter = validStatus
+    ? requestedStatus
+    : "";
 
   const db = supabaseAdmin();
 
@@ -113,30 +137,42 @@ export default async function Bookings({
     .limit(100);
 
   if (filter) {
-    query = query.eq("status", filter);
+    query = query.eq(
+      "status",
+      filter
+    );
   }
 
-  const { data, error } = await query;
+  const {
+    data,
+    error,
+  } = await query;
 
   if (error) {
-    console.error("Admin bookings error:", error);
+    console.error(
+      "Admin bookings error:",
+      error
+    );
   }
 
-  const bookings = data || [];
+  const bookings = data ?? [];
 
   return (
     <div className="admin-page bookings-dashboard">
       {/* HEADER */}
       <header className="bookings-header">
         <div>
-          <div className="kicker">OPERATIONS</div>
+          <div className="kicker">
+            OPERATIONS
+          </div>
 
           <h1 className="serif bookings-title">
             Bookings
           </h1>
 
           <p className="muted bookings-subtitle">
-            Manage customer appointments and booking requests.
+            Manage customer appointments
+            and booking requests.
           </p>
         </div>
 
@@ -165,14 +201,18 @@ export default async function Bookings({
               defaultValue={filter}
               className="bookings-status-select"
             >
-              {STATUS_OPTIONS.map(([value, label]) => (
-                <option
-                  key={value || "all"}
-                  value={value}
-                >
-                  {label}
-                </option>
-              ))}
+              {STATUS_OPTIONS.map(
+                ([value, label]) => (
+                  <option
+                    key={
+                      value || "all"
+                    }
+                    value={value}
+                  >
+                    {label}
+                  </option>
+                )
+              )}
             </select>
 
             <button
@@ -195,102 +235,110 @@ export default async function Bookings({
       {/* BOOKINGS */}
       {bookings.length > 0 ? (
         <div className="bookings-card-list">
-          {bookings.map((booking) => (
-            <article
-              key={booking.id}
-              className="booking-client-card"
-            >
-              <div className="booking-card-content">
-                {/* BOOKING ID */}
-                <div className="booking-field booking-field-id">
-                  <span className="booking-field-label">
-                    Booking ID
-                  </span>
+          {bookings.map(
+            (booking) => (
+              <article
+                key={booking.id}
+                className="booking-client-card"
+              >
+                <div className="booking-card-content">
+                  {/* BOOKING ID */}
+                  <div className="booking-field booking-field-id">
+                    <span className="booking-field-label">
+                      Booking ID
+                    </span>
 
-                  <div className="booking-id-row">
-                    <strong className="booking-reference">
-                      {booking.reference_code}
+                    <div className="booking-id-row">
+                      <strong className="booking-reference">
+                        {booking.reference_code}
+                      </strong>
+
+                      <CopyBookingId
+                        value={
+                          booking.reference_code
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {/* CLIENT */}
+                  <div className="booking-field booking-field-client">
+                    <span className="booking-field-label">
+                      Client
+                    </span>
+
+                    <strong className="booking-client-name">
+                      {booking.customer_name}
+                    </strong>
+                  </div>
+
+                  {/* APPOINTMENT */}
+                  <div className="booking-field booking-field-appointment">
+                    <span className="booking-field-label">
+                      Appointment
+                    </span>
+
+                    <strong>
+                      {formatDate(
+                        booking.preferred_date
+                      )}
                     </strong>
 
-                    <CopyBookingId
-                      value={booking.reference_code}
-                    />
+                    <span className="booking-time">
+                      {formatTime12(
+                        booking.preferred_time
+                      )}
+                    </span>
+                  </div>
+
+                  {/* PHONE */}
+                  <div className="booking-field booking-field-phone">
+                    <span className="booking-field-label">
+                      Phone
+                    </span>
+
+                    <strong>
+                      {booking.mobile_number ||
+                        "—"}
+                    </strong>
+                  </div>
+
+                  {/* STATUS */}
+                  <div className="booking-field booking-field-status">
+                    <span className="booking-field-label">
+                      Status
+                    </span>
+
+                    <span
+                      className={statusClass(
+                        booking.status
+                      )}
+                    >
+                      {statusLabel(
+                        booking.status
+                      )}
+                    </span>
+                  </div>
+
+                  {/* ACTION */}
+                  <div className="booking-card-action">
+                    <Link
+                      href={`/admin/bookings/${booking.id}`}
+                      className="booking-view-button"
+                    >
+                      View Details
+
+                      <span
+                        aria-hidden="true"
+                      >
+                        →
+                      </span>
+                    </Link>
                   </div>
                 </div>
-
-                {/* CLIENT */}
-                <div className="booking-field booking-field-client">
-                  <span className="booking-field-label">
-                    Client
-                  </span>
-
-                  <strong className="booking-client-name">
-                    {booking.customer_name}
-                  </strong>
-                </div>
-
-                {/* APPOINTMENT */}
-                <div className="booking-field booking-field-appointment">
-                  <span className="booking-field-label">
-                    Appointment
-                  </span>
-
-                  <strong>
-                    {formatDate(
-                      booking.preferred_date
-                    )}
-                  </strong>
-
-                  <span className="booking-time">
-                    {formatTime12(
-                      booking.preferred_time
-                    )}
-                  </span>
-                </div>
-
-                {/* PHONE */}
-                <div className="booking-field booking-field-phone">
-                  <span className="booking-field-label">
-                    Phone
-                  </span>
-
-                  <strong>
-                    {booking.mobile_number || "—"}
-                  </strong>
-                </div>
-
-                {/* STATUS */}
-                <div className="booking-field booking-field-status">
-                  <span className="booking-field-label">
-                    Status
-                  </span>
-
-                  <span
-                    className={statusClass(
-                      booking.status
-                    )}
-                  >
-                    {statusLabel(
-                      booking.status
-                    )}
-                  </span>
-                </div>
-
-                {/* ACTION */}
-                <div className="booking-card-action">
-                  <Link
-                    href={`/admin/bookings/${booking.id}`}
-                    className="booking-view-button"
-                  >
-                    View Details
-                    <span aria-hidden="true">
-                      →
-                    </span>
-                  </Link>
-                </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            )
+          )}
         </div>
       ) : (
         <div className="bookings-empty">
@@ -303,7 +351,8 @@ export default async function Bookings({
           </h2>
 
           <p className="muted">
-            There are no bookings under this status.
+            There are no bookings under
+            this status.
           </p>
 
           {filter && (

@@ -1,76 +1,54 @@
 "use client";
 
-import {
-  useState,
-} from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-import {
-  useRouter,
-} from "next/navigation";
-
-import {
-  supabaseBrowser,
-} from "@/lib/supabase-browser";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 export default function Login() {
-  const [
-    email,
-    setEmail,
-  ] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const [
-    password,
-    setPassword,
-  ] = useState("");
+  const router = useRouter();
 
-  const [
-    error,
-    setError,
-  ] = useState("");
+  const signIn = async () => {
+    if (busy) {
+      return;
+    }
 
-  const [
-    busy,
-    setBusy,
-  ] = useState(false);
+    setError("");
 
-  const router =
-    useRouter();
+    const trimmedEmail = email.trim();
 
-  const signIn =
-    async () => {
-      setError("");
-      setBusy(true);
+    if (!trimmedEmail || !password) {
+      setError("Please enter your email and password.");
+      return;
+    }
 
-      try {
-        const {
-          error: authError,
-        } =
-          await supabaseBrowser()
-            .auth.signInWithPassword({
-              email,
-              password,
-            });
+    setBusy(true);
 
-        if (
-          authError
-        ) {
-          setError(
-            authError.message
-          );
-          return;
-        }
+    try {
+      const { error: authError } =
+        await supabaseBrowser().auth.signInWithPassword({
+          email: trimmedEmail,
+          password,
+        });
 
-        router.push(
-          "/admin"
-        );
-      } catch {
-        setError(
-          "Unable to sign in. Please try again."
-        );
-      } finally {
-        setBusy(false);
+      if (authError) {
+        setError("Invalid email or password.");
+        return;
       }
-    };
+
+      router.replace("/admin");
+      router.refresh();
+    } catch {
+      setError("Unable to sign in. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <main className="form-page">
@@ -82,7 +60,7 @@ export default function Login() {
       >
         <div className="card">
           <div className="kicker">
-            Nailtech access
+            Nails by Arkie access
           </div>
 
           <h1 className="serif">
@@ -90,59 +68,49 @@ export default function Login() {
           </h1>
 
           <div className="field">
-            <label>
+            <label htmlFor="admin-email">
               Email
             </label>
 
             <input
+              id="admin-email"
               type="email"
               autoComplete="email"
               value={email}
-              onChange={(
-                event
-              ) =>
-                setEmail(
-                  event.target
-                    .value
-                )
-              }
+              onChange={(event) => {
+                setEmail(event.target.value);
+              }}
+              disabled={busy}
             />
           </div>
 
           <div className="field">
-            <label>
+            <label htmlFor="admin-password">
               Password
             </label>
 
             <input
+              id="admin-password"
               type="password"
               autoComplete="current-password"
-              value={
-                password
-              }
-              onChange={(
-                event
-              ) =>
-                setPassword(
-                  event.target
-                    .value
-                )
-              }
-              onKeyDown={(
-                event
-              ) => {
-                if (
-                  event.key ===
-                  "Enter"
-                ) {
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
                   signIn();
                 }
               }}
+              disabled={busy}
             />
           </div>
 
           {error && (
-            <div className="notice">
+            <div
+              className="notice"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -154,13 +122,9 @@ export default function Login() {
               marginTop: 16,
             }}
             disabled={busy}
-            onClick={
-              signIn
-            }
+            onClick={signIn}
           >
-            {busy
-              ? "Signing in…"
-              : "Sign in"}
+            {busy ? "Signing in…" : "Sign in"}
           </button>
         </div>
       </div>

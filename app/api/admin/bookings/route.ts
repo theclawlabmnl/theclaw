@@ -38,7 +38,6 @@ const PAYMENT_METHODS = [
  * Approved bookings have 3 hours to
  * submit their required payment.
  *
- * IMPORTANT:
  * The timer starts from approved_at,
  * NOT from the original booking request.
  */
@@ -53,6 +52,12 @@ const PAYMENT_DEADLINE_REASON =
 const PAYMENT_DEADLINE_NOTE =
   "Booking was automatically cancelled because payment was not submitted within 3 hours of approval.";
 
+/*
+ * ------------------------------------------------------------
+ * ADMIN AUTH
+ * ------------------------------------------------------------
+ */
+
 async function getAdminDb() {
   const session = await supabaseServer();
 
@@ -66,7 +71,10 @@ async function getAdminDb() {
 
   const db = supabaseAdmin();
 
-  const { data: admin, error } = await db
+  const {
+    data: admin,
+    error,
+  } = await db
     .from("admins")
     .select("id")
     .eq("user_id", user.id)
@@ -81,14 +89,22 @@ async function getAdminDb() {
   return admin ? db : null;
 }
 
-function jsonError(error: string, status = 400) {
-  return NextResponse.json({ error }, { status });
+function jsonError(
+  error: string,
+  status = 400
+) {
+  return NextResponse.json(
+    { error },
+    { status }
+  );
 }
 
 /*
- * Returns the payment deadline for an
- * approved booking.
+ * ------------------------------------------------------------
+ * PAYMENT DEADLINE
+ * ------------------------------------------------------------
  */
+
 function getPaymentDeadline(
   approvedAt: string | null | undefined
 ): Date | null {
@@ -107,10 +123,6 @@ function getPaymentDeadline(
   );
 }
 
-/*
- * Checks whether an approved booking's
- * payment deadline has passed.
- */
 function isPaymentDeadlineExpired(
   approvedAt: string | null | undefined,
   now = new Date()
@@ -122,31 +134,19 @@ function isPaymentDeadlineExpired(
     return false;
   }
 
-  return now.getTime() >= deadline.getTime();
+  return (
+    now.getTime() >= deadline.getTime()
+  );
 }
 
 /*
- * Automatically cancels approved bookings
+ * Automatically cancel approved bookings
  * whose 3-hour payment window has expired.
  *
- * This function is safe to run repeatedly.
+ * Safe to run repeatedly.
  *
- * It ONLY cancels bookings whose current
- * status is still "approved".
- *
- * Therefore:
- *
- * approved
- *   -> deadline expires
- *   -> cancelled
- *
- * But:
- *
- * approved
- *   -> payment_submitted
- *   -> confirmed
- *
- * will NOT be cancelled.
+ * Only bookings still in "approved" status
+ * are cancelled.
  */
 async function expireOverdueApprovedBookings(
   db: ReturnType<typeof supabaseAdmin>,
@@ -154,9 +154,6 @@ async function expireOverdueApprovedBookings(
 ) {
   const nowIso = now.toISOString();
 
-  /*
-   * Only approved bookings can expire.
-   */
   const {
     data: bookings,
     error,
@@ -179,16 +176,17 @@ async function expireOverdueApprovedBookings(
     };
   }
 
-  const expiredIds = bookings
-    .filter((booking) =>
-      isPaymentDeadlineExpired(
-        booking.approved_at,
-        now
+  const expiredIds =
+    bookings
+      .filter((booking) =>
+        isPaymentDeadlineExpired(
+          booking.approved_at,
+          now
+        )
       )
-    )
-    .map((booking) =>
-      String(booking.id)
-    );
+      .map((booking) =>
+        String(booking.id)
+      );
 
   if (!expiredIds.length) {
     return {
@@ -197,14 +195,6 @@ async function expireOverdueApprovedBookings(
     };
   }
 
-  /*
-   * IMPORTANT:
-   *
-   * The status condition prevents a booking
-   * that was already moved to
-   * payment_submitted/confirmed/etc. from
-   * being cancelled by a delayed job.
-   */
   const {
     data: cancelledBookings,
     error: cancellationError,
@@ -234,19 +224,14 @@ async function expireOverdueApprovedBookings(
 }
 
 /*
- * Normalizes:
- *
- * 09:00
- * 09:00:00
- * 9:00
- * 9:00 AM
- * 9:00:00 AM
- *
- * into:
- *
- * 09:00
+ * ------------------------------------------------------------
+ * TIME / DATE HELPERS
+ * ------------------------------------------------------------
  */
-function normalizeTime(value: unknown): string | null {
+
+function normalizeTime(
+  value: unknown
+): string | null {
   if (!value) {
     return null;
   }
@@ -291,7 +276,6 @@ function normalizeTime(value: unknown): string | null {
   }
 
   let hours = Number(match12[1]);
-
   const minutes = Number(match12[2]);
 
   const seconds = match12[3]
@@ -329,7 +313,9 @@ function normalizeTime(value: unknown): string | null {
   )}`;
 }
 
-function toMinutes(value: unknown): number | null {
+function toMinutes(
+  value: unknown
+): number | null {
   const normalized =
     normalizeTime(value);
 
@@ -345,24 +331,32 @@ function toMinutes(value: unknown): number | null {
   return hours * 60 + minutes;
 }
 
-function isValidDate(value: unknown) {
-  const date = String(value || "").trim();
+function isValidDate(
+  value: unknown
+) {
+  const date =
+    String(value || "").trim();
 
   if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    !/^\d{4}-\d{2}-\d{2}$/.test(
+      date
+    )
   ) {
     return false;
   }
 
   const parsed =
-    new Date(`${date}T00:00:00Z`);
+    new Date(
+      `${date}T00:00:00Z`
+    );
 
   return (
     !Number.isNaN(
       parsed.getTime()
     ) &&
-    parsed.toISOString().slice(0, 10) ===
-      date
+    parsed
+      .toISOString()
+      .slice(0, 10) === date
   );
 }
 
@@ -377,6 +371,12 @@ function overlaps(
     endA > startB
   );
 }
+
+/*
+ * ------------------------------------------------------------
+ * SERVICE CALCULATION
+ * ------------------------------------------------------------
+ */
 
 async function calculateServicesTotal(
   db: ReturnType<typeof supabaseAdmin>,
@@ -402,7 +402,10 @@ async function calculateServicesTotal(
 
   const selections =
     servicesInput.map(
-      (item: any, index: number) => {
+      (
+        item: any,
+        index: number
+      ) => {
         const serviceId =
           String(
             item?.service_id ||
@@ -469,7 +472,9 @@ async function calculateServicesTotal(
 
     variationIds.length
       ? db
-          .from("service_variations")
+          .from(
+            "service_variations"
+          )
           .select(
             "id,service_id,name,price_delta,duration_delta_minutes,active"
           )
@@ -477,7 +482,10 @@ async function calculateServicesTotal(
             "id",
             variationIds
           )
-          .eq("active", true)
+          .eq(
+            "active",
+            true
+          )
       : Promise.resolve({
           data: [],
           error: null,
@@ -494,7 +502,10 @@ async function calculateServicesTotal(
 
   const serviceMap =
     new Map(
-      (servicesResult.data || []).map(
+      (
+        servicesResult.data ||
+        []
+      ).map(
         (service) => [
           String(service.id),
           service,
@@ -504,7 +515,10 @@ async function calculateServicesTotal(
 
   const variationMap =
     new Map(
-      (variationsResult.data || []).map(
+      (
+        variationsResult.data ||
+        []
+      ).map(
         (variation) => [
           String(variation.id),
           variation,
@@ -629,6 +643,12 @@ async function calculateServicesTotal(
   };
 }
 
+/*
+ * ------------------------------------------------------------
+ * AVAILABILITY VALIDATION
+ * ------------------------------------------------------------
+ */
+
 async function validateAvailability(
   db: ReturnType<typeof supabaseAdmin>,
   bookingId: string,
@@ -666,7 +686,9 @@ async function validateAvailability(
     bookingsResult,
   ] = await Promise.all([
     db
-      .from("availability_rules")
+      .from(
+        "availability_rules"
+      )
       .select(
         "day_of_week,is_available,start_time,end_time,active"
       )
@@ -674,7 +696,10 @@ async function validateAvailability(
         "day_of_week",
         dayOfWeek
       )
-      .eq("active", true)
+      .eq(
+        "active",
+        true
+      )
       .maybeSingle(),
 
     db
@@ -698,13 +723,19 @@ async function validateAvailability(
         "preferred_date",
         date
       )
-      .in("status", [
-        "pending",
-        "approved",
-        "payment_submitted",
-        "confirmed",
-      ])
-      .neq("id", bookingId),
+      .in(
+        "status",
+        [
+          "pending",
+          "approved",
+          "payment_submitted",
+          "confirmed",
+        ]
+      )
+      .neq(
+        "id",
+        bookingId
+      ),
   ]);
 
   if (ruleResult.error) {
@@ -753,12 +784,17 @@ async function validateAvailability(
     }
   }
 
+  /*
+   * OPEN overrides add availability.
+   */
   for (
     const override of
-      overridesResult.data || []
+      overridesResult.data ||
+      []
   ) {
     if (
-      override.kind !== "open"
+      override.kind !==
+      "open"
     ) {
       continue;
     }
@@ -785,12 +821,17 @@ async function validateAvailability(
     }
   }
 
+  /*
+   * BLOCK overrides remove availability.
+   */
   for (
     const override of
-      overridesResult.data || []
+      overridesResult.data ||
+      []
   ) {
     if (
-      override.kind !== "block"
+      override.kind !==
+      "block"
     ) {
       continue;
     }
@@ -818,8 +859,10 @@ async function validateAvailability(
     > = [];
 
     for (
-      const [start, end] of
-        windows
+      const [
+        start,
+        end,
+      ] of windows
     ) {
       if (
         blockEnd <= start ||
@@ -876,9 +919,11 @@ async function validateAvailability(
 
   const bookingIds =
     (
-      bookingsResult.data || []
+      bookingsResult.data ||
+      []
     ).map(
-      (booking) => booking.id
+      (booking) =>
+        booking.id
     );
 
   const durationByBooking =
@@ -977,8 +1022,11 @@ async function validateAvailability(
 }
 
 /*
+ * ------------------------------------------------------------
  * POST
+ * ------------------------------------------------------------
  */
+
 export async function POST(
   request: NextRequest
 ) {
@@ -1018,6 +1066,9 @@ export async function POST(
       );
     }
 
+    /*
+     * VERIFY DISCOUNT
+     */
     if (
       action ===
       "verify_discount"
@@ -1031,7 +1082,10 @@ export async function POST(
         .select(
           "id,promo_name,discount_verified"
         )
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .single();
 
       if (
@@ -1061,20 +1115,24 @@ export async function POST(
       const now =
         new Date().toISOString();
 
-      const { error } =
-        await db
-          .from("bookings")
-          .update({
-            discount_verified:
-              true,
-            discount_verified_at:
-              now,
-          })
-          .eq("id", id)
-          .eq(
-            "discount_verified",
-            false
-          );
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update({
+          discount_verified:
+            true,
+          discount_verified_at:
+            now,
+        })
+        .eq(
+          "id",
+          id
+        )
+        .eq(
+          "discount_verified",
+          false
+        );
 
       if (error) {
         throw error;
@@ -1088,22 +1146,29 @@ export async function POST(
       );
     }
 
+    /*
+     * UNVERIFY DISCOUNT
+     */
     if (
       action ===
       "unverify_discount"
     ) {
-      const { error } =
-        await db
-          .from("bookings")
-          .update({
-            discount_verified:
-              false,
-            discount_verified_at:
-              null,
-            discount_amount:
-              0,
-          })
-          .eq("id", id);
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update({
+          discount_verified:
+            false,
+          discount_verified_at:
+            null,
+          discount_amount:
+            0,
+        })
+        .eq(
+          "id",
+          id
+        );
 
       if (error) {
         throw error;
@@ -1117,6 +1182,9 @@ export async function POST(
       );
     }
 
+    /*
+     * VERIFY PAYMENT
+     */
     if (
       action ===
       "verify_payment"
@@ -1178,23 +1246,24 @@ export async function POST(
       const now =
         new Date().toISOString();
 
-      const { error } =
-        await db
-          .from("payments")
-          .update({
-            status:
-              "verified",
-            verified_at:
-              now,
-          })
-          .eq(
-            "id",
-            paymentId
-          )
-          .eq(
-            "booking_id",
-            id
-          );
+      const {
+        error,
+      } = await db
+        .from("payments")
+        .update({
+          status:
+            "verified",
+          verified_at:
+            now,
+        })
+        .eq(
+          "id",
+          paymentId
+        )
+        .eq(
+          "booking_id",
+          id
+        );
 
       if (error) {
         throw error;
@@ -1231,8 +1300,11 @@ export async function POST(
 }
 
 /*
+ * ------------------------------------------------------------
  * PATCH
+ * ------------------------------------------------------------
  */
+
 export async function PATCH(
   request: NextRequest
 ) {
@@ -1251,9 +1323,8 @@ export async function PATCH(
      * Run the expiry check whenever
      * the admin booking API is used.
      *
-     * The dedicated scheduled job we add
-     * next will handle true unattended
-     * automatic cancellation.
+     * The scheduled job will handle
+     * unattended cancellation.
      */
     try {
       await expireOverdueApprovedBookings(
@@ -1290,9 +1361,14 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * EDIT BOOKING
+     * --------------------------------------------------------
      */
-    if (action === "edit") {
+
+    if (
+      action === "edit"
+    ) {
       const {
         data: existingBooking,
         error:
@@ -1302,7 +1378,10 @@ export async function PATCH(
         .select(
           "id,status,estimated_total,down_payment,promo_name,discount_verified"
         )
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .maybeSingle();
 
       if (
@@ -1459,7 +1538,10 @@ export async function PATCH(
           discount_amount:
             discountAmount,
         })
-        .eq("id", id);
+        .eq(
+          "id",
+          id
+        );
 
       if (
         bookingUpdateError
@@ -1471,7 +1553,9 @@ export async function PATCH(
         error:
           deleteServicesError,
       } = await db
-        .from("booking_services")
+        .from(
+          "booking_services"
+        )
         .delete()
         .eq(
           "booking_id",
@@ -1487,7 +1571,8 @@ export async function PATCH(
       const rows =
         calculated.services.map(
           (service) => ({
-            booking_id: id,
+            booking_id:
+              id,
             service_id:
               service.service_id,
             variation_id:
@@ -1507,7 +1592,9 @@ export async function PATCH(
         error:
           insertServicesError,
       } = await db
-        .from("booking_services")
+        .from(
+          "booking_services"
+        )
         .insert(rows);
 
       if (
@@ -1535,8 +1622,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * RECORD PAYMENT
+     * --------------------------------------------------------
      */
+
     if (
       action ===
       "record_payment"
@@ -1610,7 +1700,10 @@ export async function PATCH(
         .select(
           "id,estimated_total,down_payment"
         )
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .maybeSingle();
 
       if (
@@ -1668,6 +1761,10 @@ export async function PATCH(
         throw paymentInsertError;
       }
 
+      /*
+       * Keep the legacy down_payment field
+       * synchronized with balance payments.
+       */
       if (
         paymentType ===
         "balance"
@@ -1723,12 +1820,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * NORMAL BOOKING LOOKUP
-     *
-     * Email is included here because the
-     * completed notification needs the
-     * customer's email address.
+     * --------------------------------------------------------
      */
+
     const {
       data: booking,
       error: bookingError,
@@ -1737,7 +1833,10 @@ export async function PATCH(
       .select(
         "id,status,reference_code,customer_name,email,promo_name,estimated_total,discount_verified,approved_at"
       )
-      .eq("id", id)
+      .eq(
+        "id",
+        id
+      )
       .single();
 
     if (
@@ -1757,13 +1856,15 @@ export async function PATCH(
       now.toISOString();
 
     /*
+     * --------------------------------------------------------
      * ADMIN OVERRIDE
-     *
-     * Emergency-only status correction.
-     * This intentionally bypasses the normal
-     * booking workflow transitions.
+     * --------------------------------------------------------
      */
-    if (action === "admin_override") {
+
+    if (
+      action ===
+      "admin_override"
+    ) {
       const overrideStatus =
         String(
           body.status || ""
@@ -1811,9 +1912,8 @@ export async function PATCH(
       };
 
       /*
-       * If the admin forces the booking
-       * back to approved, restart the
-       * 3-hour payment timer from now.
+       * Restart payment timer when
+       * forcing a booking to approved.
        */
       if (
         overrideStatus ===
@@ -1823,11 +1923,6 @@ export async function PATCH(
           nowIso;
       }
 
-      /*
-       * Record the appropriate milestone
-       * timestamp when forcing a booking
-       * forward.
-       */
       if (
         overrideStatus ===
         "confirmed"
@@ -1844,10 +1939,6 @@ export async function PATCH(
           nowIso;
       }
 
-      /*
-       * A forced cancellation gets a clear
-       * internal cancellation record.
-       */
       if (
         overrideStatus ===
         "cancelled"
@@ -1861,10 +1952,6 @@ export async function PATCH(
         patch.cancellation_note =
           "Booking status changed by admin emergency override.";
       } else {
-        /*
-         * If recovering a cancelled booking,
-         * remove the cancellation state.
-         */
         patch.cancelled_at =
           null;
 
@@ -1875,23 +1962,26 @@ export async function PATCH(
           null;
       }
 
-      const { error } =
-        await db
-          .from("bookings")
-          .update(patch)
-          .eq("id", id);
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update(patch)
+        .eq(
+          "id",
+          id
+        );
 
       if (error) {
         throw error;
       }
 
       /*
-       * If Admin Override moves a booking
-       * directly to COMPLETED, send the same
-       * customer completion/review email.
+       * Send completion email if
+       * admin directly forces completed.
        *
-       * Notification failure must NOT undo
-       * the successful status change.
+       * Email failure must never undo
+       * the status change.
        */
       if (
         overrideStatus ===
@@ -1928,11 +2018,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * APPROVE
-     *
-     * This is where the 3-hour payment
-     * window begins.
+     * --------------------------------------------------------
      */
+
     if (
       action === "approve"
     ) {
@@ -1954,25 +2044,24 @@ export async function PATCH(
             PAYMENT_DEADLINE_MS
         ).toISOString();
 
-      const { error } =
-        await db
-          .from("bookings")
-          .update({
-            status:
-              "approved",
-
-            /*
-             * This timestamp starts the
-             * 3-hour payment timer.
-             */
-            approved_at:
-              approvedAt,
-          })
-          .eq("id", id)
-          .eq(
-            "status",
-            "pending"
-          );
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update({
+          status:
+            "approved",
+          approved_at:
+            approvedAt,
+        })
+        .eq(
+          "id",
+          id
+        )
+        .eq(
+          "status",
+          "pending"
+        );
 
       if (error) {
         throw error;
@@ -1992,8 +2081,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * REJECT
+     * --------------------------------------------------------
      */
+
     if (
       action === "reject"
     ) {
@@ -2012,21 +2104,25 @@ export async function PATCH(
         );
       }
 
-      const { error } =
-        await db
-          .from("bookings")
-          .update({
-            status:
-              "rejected",
-          })
-          .eq("id", id)
-          .in(
-            "status",
-            [
-              "pending",
-              "approved",
-            ]
-          );
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update({
+          status:
+            "rejected",
+        })
+        .eq(
+          "id",
+          id
+        )
+        .in(
+          "status",
+          [
+            "pending",
+            "approved",
+          ]
+        );
 
       if (error) {
         throw error;
@@ -2040,8 +2136,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * CANCEL
+     * --------------------------------------------------------
      */
+
     if (
       action === "cancel"
     ) {
@@ -2118,7 +2217,10 @@ export async function PATCH(
           cancelled_at:
             nowIso,
         })
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .neq(
           "status",
           "cancelled"
@@ -2145,11 +2247,13 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * RESET
+     * --------------------------------------------------------
      */
+
     if (
-      action ===
-      "reset"
+      action === "reset"
     ) {
       const resetStatus =
         String(
@@ -2180,6 +2284,17 @@ export async function PATCH(
       };
 
       if (
+        resetStatus ===
+        "approved"
+      ) {
+        patch.approved_at =
+          nowIso;
+      } else {
+        patch.approved_at =
+          null;
+      }
+
+      if (
         resetStatus !==
         "confirmed"
       ) {
@@ -2196,11 +2311,15 @@ export async function PATCH(
       patch.cancellation_note =
         null;
 
-      const { error } =
-        await db
-          .from("bookings")
-          .update(patch)
-          .eq("id", id);
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update(patch)
+        .eq(
+          "id",
+          id
+        );
 
       if (error) {
         throw error;
@@ -2214,8 +2333,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * VERIFY DISCOUNT
+     * --------------------------------------------------------
      */
+
     if (
       action ===
       "verify_discount"
@@ -2234,6 +2356,16 @@ export async function PATCH(
         );
       }
 
+      const discountAmount =
+        Math.round(
+          Number(
+            booking.estimated_total ||
+              0
+          ) *
+            0.05 *
+            100
+        ) / 100;
+
       const {
         error,
       } = await db
@@ -2244,16 +2376,12 @@ export async function PATCH(
           discount_verified_at:
             nowIso,
           discount_amount:
-            Math.round(
-              Number(
-                booking.estimated_total ||
-                  0
-              ) *
-                0.05 *
-                100
-            ) / 100,
+            discountAmount,
         })
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .eq(
           "discount_verified",
           false
@@ -2271,12 +2399,17 @@ export async function PATCH(
           nowIso,
         discount_rate:
           5,
+        discount_amount:
+          discountAmount,
       });
     }
 
     /*
+     * --------------------------------------------------------
      * UNVERIFY DISCOUNT
+     * --------------------------------------------------------
      */
+
     if (
       action ===
       "unverify_discount"
@@ -2293,7 +2426,10 @@ export async function PATCH(
           discount_amount:
             0,
         })
-        .eq("id", id);
+        .eq(
+          "id",
+          id
+        );
 
       if (error) {
         throw error;
@@ -2311,8 +2447,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * VERIFY PAYMENT
+     * --------------------------------------------------------
      */
+
     if (
       action ===
       "verify_payment"
@@ -2405,8 +2544,11 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * MARK COMPLETED
+     * --------------------------------------------------------
      */
+
     if (
       action === "complete"
     ) {
@@ -2429,7 +2571,10 @@ export async function PATCH(
           completed_at:
             nowIso,
         })
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .eq(
           "status",
           "confirmed"
@@ -2440,11 +2585,8 @@ export async function PATCH(
       }
 
       /*
-       * Send the customer their completion
-       * email with the review link.
-       *
-       * Notification failure must NOT cause
-       * the completed status update to fail.
+       * Completion email failure must
+       * never undo the status update.
        */
       try {
         await notifyBookingCompleted({
@@ -2485,23 +2627,30 @@ export async function PATCH(
     }
 
     /*
+     * --------------------------------------------------------
      * DELETE BOOKING
+     * --------------------------------------------------------
      */
+
     if (
       action === "delete"
     ) {
       if (
-        body.confirm !==
-        true
+        body.confirm !== true
       ) {
         return jsonError(
           "Delete confirmation is required."
         );
       }
 
+      /*
+       * Get storage references before
+       * deleting database rows.
+       */
       const {
-        data:
-          paymentProofs,
+        data: paymentProofs,
+        error:
+          paymentProofLookupError,
       } = await db
         .from(
           "payment_proofs"
@@ -2514,9 +2663,16 @@ export async function PATCH(
           id
         );
 
+      if (
+        paymentProofLookupError
+      ) {
+        throw paymentProofLookupError;
+      }
+
       const {
-        data:
-          bookingFiles,
+        data: bookingFiles,
+        error:
+          bookingFilesLookupError,
       } = await db
         .from(
           "booking_files"
@@ -2529,6 +2685,15 @@ export async function PATCH(
           id
         );
 
+      if (
+        bookingFilesLookupError
+      ) {
+        throw bookingFilesLookupError;
+      }
+
+      /*
+       * Delete child records first.
+       */
       const paymentProofDelete =
         await db
           .from(
@@ -2595,13 +2760,19 @@ export async function PATCH(
         throw paymentsDelete.error;
       }
 
+      /*
+       * Delete the booking itself.
+       */
       const {
         error:
           bookingDeleteError,
       } = await db
         .from("bookings")
         .delete()
-        .eq("id", id);
+        .eq(
+          "id",
+          id
+        );
 
       if (
         bookingDeleteError
@@ -2609,13 +2780,17 @@ export async function PATCH(
         throw bookingDeleteError;
       }
 
-      const storageGroups =
-        [
-          paymentProofs ||
-            [],
-          bookingFiles ||
-            [],
-        ];
+      /*
+       * Remove uploaded files from storage.
+       *
+       * Database deletion is already complete.
+       * Storage cleanup failure is logged but
+       * does not make the booking deletion fail.
+       */
+      const storageGroups = [
+        paymentProofs || [],
+        bookingFiles || [],
+      ];
 
       for (
         const files of
@@ -2660,8 +2835,7 @@ export async function PATCH(
           ] of grouped
         ) {
           if (
-            paths.length ===
-            0
+            paths.length === 0
           ) {
             continue;
           }

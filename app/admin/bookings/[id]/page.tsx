@@ -2,8 +2,10 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { formatDate, peso } from "@/lib/utils";
+
 import BookingActions from "@/components/BookingActions";
 import BookingPaymentActions from "@/components/BookingPaymentActions";
 
@@ -212,7 +214,6 @@ export default async function BookingDetail({
    */
   const discountName = booking.promo_name || "";
   const discountSelected = Boolean(discountName);
-
   const discountVerified = Boolean(
     booking.discount_verified
   );
