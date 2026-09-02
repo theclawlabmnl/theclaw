@@ -560,7 +560,7 @@ export default async function Home() {
           --home-white: #fffdfb;
 
           width: 100%;
-          overflow: clip;
+          overflow: hidden;
           background: var(--home-cream);
           color: var(--home-ink);
         }
@@ -571,14 +571,26 @@ export default async function Home() {
           box-sizing: border-box;
         }
 
-        .home-header {
-          position: sticky;
-          top: 0;
-          z-index: 1000;
-          width: 100%;
-          border-bottom: 1px solid var(--home-line);
-          background: rgba(250, 246, 242, 0.94);
-        }
+       .home-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+  border-bottom: 1px solid var(--home-line);
+  background: rgba(250, 246, 242, 0.94);.home-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  width: 100%;
+  border-bottom: 1px solid var(--home-line);
+  background: rgba(250, 246, 242, 0.94);
+}
+  .claw-home {
+  padding-top: 72px;
+}
+}
 
         .home-header-inner {
           width: 100%;
@@ -825,6 +837,8 @@ export default async function Home() {
           text-transform: uppercase;
         }
 
+        /* PROMO */
+
         .home-promo {
           width: 100%;
           padding: 0 28px 90px;
@@ -890,6 +904,8 @@ export default async function Home() {
           margin-top: 28px;
         }
 
+        /* INTRO */
+
         .home-intro {
           border-top: 1px solid var(--home-line);
           border-bottom: 1px solid var(--home-line);
@@ -927,6 +943,8 @@ export default async function Home() {
           font-size: clamp(19px, 2.2vw, 28px);
           line-height: 1.35;
         }
+
+        /* SECTIONS */
 
         .home-section {
           width: 100%;
@@ -966,6 +984,8 @@ export default async function Home() {
           border-bottom: 1px solid var(--home-ink);
           padding-bottom: 6px;
         }
+
+        /* SERVICES */
 
         .home-services {
           background: var(--home-cream);
@@ -1032,6 +1052,8 @@ export default async function Home() {
           line-height: 1.6;
         }
 
+        /* EXPERIENCE */
+
         .home-experience {
           padding: 115px 28px;
           background: var(--home-ink);
@@ -1097,6 +1119,8 @@ export default async function Home() {
           line-height: 1.7;
         }
 
+        /* REVIEWS */
+
         .home-reviews {
           background: var(--home-white);
         }
@@ -1134,6 +1158,8 @@ export default async function Home() {
           letter-spacing: 0.1em;
           text-transform: uppercase;
         }
+
+        /* CONTACT */
 
         .home-contact {
           padding: 115px 28px 70px;

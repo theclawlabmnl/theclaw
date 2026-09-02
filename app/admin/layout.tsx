@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { redirect } from "next/navigation";
+import AdminShell from "@/components/AdminShell";
 
 import { supabaseServer } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -17,7 +17,7 @@ export default async function AdminLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/admin/login");
+    return <>{children}</>;
   }
 
   const db = supabaseAdmin();
@@ -30,8 +30,8 @@ export default async function AdminLayout({
     .maybeSingle();
 
   if (!admin) {
-    redirect("/admin/login");
+    return <>{children}</>;
   }
 
-  return <>{children}</>;
+  return <AdminShell>{children}</AdminShell>;
 }

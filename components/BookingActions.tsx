@@ -70,6 +70,10 @@ export default function BookingActions({
   const [loading, setLoading] = useState(false);
   const [overrideLoading, setOverrideLoading] =
     useState(false);
+  const [resetLoading, setResetLoading] =
+    useState(false);
+  const [deleteLoading, setDeleteLoading] =
+    useState(false);
 
   const [cancellationReason, setCancellationReason] =
     useState("cancelled_by_client");
@@ -83,6 +87,12 @@ export default function BookingActions({
   const [overrideStatus, setOverrideStatus] =
     useState<BookingStatus>(status);
 
+  const [resetOpen, setResetOpen] =
+    useState(false);
+
+  const [resetStatus, setResetStatus] =
+    useState<BookingStatus>("pending");
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -90,7 +100,7 @@ export default function BookingActions({
     nextStatus: BookingStatus,
     extra: Record<string, unknown> = {}
   ) {
-    if (loading) return;
+    if (loading || resetLoading || deleteLoading) return;
 
     setLoading(true);
     setMessage("");
@@ -123,6 +133,7 @@ export default function BookingActions({
       }
 
       setCurrentStatus(nextStatus);
+
       setMessage(
         `Booking marked as ${statusLabels[nextStatus]}.`
       );
@@ -137,8 +148,128 @@ export default function BookingActions({
     }
   }
 
+  async function resetBooking() {
+    if (resetLoading || deleteLoading) return;
+
+    if (resetStatus === currentStatus) {
+      setError(
+        "Please select a different status."
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `RESET BOOKING\n\nYou are about to reset this booking to:\n\n${statusLabels[resetStatus]}\n\nThis will change the booking status and clear cancellation state.\n\nContinue?`
+    );
+
+    if (!confirmed) return;
+
+    setResetLoading(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        "/api/admin/bookings",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id,
+            action: "reset",
+            status: resetStatus,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to reset booking."
+        );
+      }
+
+      setCurrentStatus(resetStatus);
+      setResetOpen(false);
+      setOverrideStatus(resetStatus);
+
+      setMessage(
+        `Booking reset to ${statusLabels[resetStatus]}.`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to reset booking."
+      );
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
+  async function deleteBooking() {
+    if (deleteLoading || resetLoading) return;
+
+    const confirmed = window.confirm(
+      "DELETE BOOKING\n\nThis permanently deletes the booking and its related payment records, uploaded files, and payment proofs.\n\nThis action cannot be undone.\n\nAre you absolutely sure you want to delete this booking?"
+    );
+
+    if (!confirmed) return;
+
+    const finalConfirmation = window.confirm(
+      "FINAL CONFIRMATION\n\nDelete this booking permanently?"
+    );
+
+    if (!finalConfirmation) return;
+
+    setDeleteLoading(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        "/api/admin/bookings",
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id,
+            confirm: true,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to delete booking."
+        );
+      }
+
+      setMessage("Booking deleted.");
+
+      window.location.href = "/admin/bookings";
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to delete booking."
+      );
+
+      setDeleteLoading(false);
+    }
+  }
+
   async function adminOverride() {
-    if (overrideLoading) return;
+    if (overrideLoading || deleteLoading) return;
 
     if (overrideStatus === currentStatus) {
       setError(
@@ -208,13 +339,24 @@ export default function BookingActions({
   }
 
   const canApprove = currentStatus === "pending";
+
   const canReject =
     currentStatus === "pending" ||
     currentStatus === "approved";
+
   const canConfirm =
     currentStatus === "payment_submitted";
+
   const canComplete =
     currentStatus === "confirmed";
+
+  const canReset =
+    resetStatuses.includes(currentStatus);
+
+  const actionDisabled =
+    loading ||
+    resetLoading ||
+    deleteLoading;
 
   return (
     <div className="booking-actions">
@@ -236,6 +378,7 @@ export default function BookingActions({
 
       <div className="booking-action-current">
         <span>Current status</span>
+
         <strong>
           {statusLabels[currentStatus]}
         </strong>
@@ -245,7 +388,7 @@ export default function BookingActions({
         <button
           type="button"
           className="btn primary"
-          disabled={loading}
+          disabled={actionDisabled}
           onClick={() =>
             updateStatus("approved")
           }
@@ -260,7 +403,7 @@ export default function BookingActions({
         <button
           type="button"
           className="btn primary"
-          disabled={loading}
+          disabled={actionDisabled}
           onClick={() =>
             updateStatus("confirmed")
           }
@@ -275,7 +418,7 @@ export default function BookingActions({
         <button
           type="button"
           className="btn primary"
-          disabled={loading}
+          disabled={actionDisabled}
           onClick={() =>
             updateStatus("completed")
           }
@@ -290,12 +433,14 @@ export default function BookingActions({
         <button
           type="button"
           className="btn secondary"
-          disabled={loading}
+          disabled={actionDisabled}
           onClick={() =>
             updateStatus("rejected")
           }
         >
-          {loading ? "Updating..." : "Reject booking"}
+          {loading
+            ? "Updating..."
+            : "Reject booking"}
         </button>
       )}
 
@@ -312,7 +457,7 @@ export default function BookingActions({
                 event.target.value
               )
             }
-            disabled={loading}
+            disabled={actionDisabled}
           >
             {cancellationReasons.map(
               (reason) => (
@@ -335,19 +480,88 @@ export default function BookingActions({
             }
             placeholder="Optional note"
             rows={3}
-            disabled={loading}
+            disabled={actionDisabled}
           />
 
           <button
             type="button"
             className="btn secondary"
-            disabled={loading}
+            disabled={actionDisabled}
             onClick={handleCancel}
           >
             {loading
               ? "Updating..."
               : "Cancel booking"}
           </button>
+        </div>
+      )}
+
+      {canReset && (
+        <div className="booking-reset-box">
+          <div className="booking-reset-header">
+            <div>
+              <div className="booking-reset-title">
+                Reset booking
+              </div>
+
+              <div className="booking-reset-help">
+                Return the booking to an earlier
+                workflow stage.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="booking-reset-toggle"
+              disabled={actionDisabled}
+              onClick={() => {
+                setResetOpen(
+                  (value) => !value
+                );
+                setError("");
+                setMessage("");
+              }}
+            >
+              {resetOpen ? "Close" : "Open"}
+            </button>
+          </div>
+
+          {resetOpen && (
+            <div className="booking-reset-controls">
+              <select
+                value={resetStatus}
+                onChange={(event) =>
+                  setResetStatus(
+                    event.target
+                      .value as BookingStatus
+                  )
+                }
+                disabled={resetLoading}
+              >
+                {resetStatuses.map(
+                  (value) => (
+                    <option
+                      key={value}
+                      value={value}
+                    >
+                      {statusLabels[value]}
+                    </option>
+                  )
+                )}
+              </select>
+
+              <button
+                type="button"
+                className="booking-reset-button"
+                disabled={resetLoading}
+                onClick={resetBooking}
+              >
+                {resetLoading
+                  ? "Resetting..."
+                  : "Reset booking"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -367,6 +581,7 @@ export default function BookingActions({
           <button
             type="button"
             className="booking-admin-override-toggle"
+            disabled={actionDisabled}
             onClick={() => {
               setOverrideOpen(
                 (value) => !value
@@ -391,7 +606,10 @@ export default function BookingActions({
                     .value as BookingStatus
                 )
               }
-              disabled={overrideLoading}
+              disabled={
+                overrideLoading ||
+                deleteLoading
+              }
             >
               {adminOverrideStatuses.map(
                 (value) => (
@@ -408,7 +626,10 @@ export default function BookingActions({
             <button
               type="button"
               className="booking-admin-override-button"
-              disabled={overrideLoading}
+              disabled={
+                overrideLoading ||
+                deleteLoading
+              }
               onClick={adminOverride}
             >
               {overrideLoading
@@ -417,6 +638,31 @@ export default function BookingActions({
             </button>
           </div>
         )}
+      </div>
+
+      {/* Permanent delete */}
+      <div className="booking-danger-zone">
+        <div>
+          <div className="booking-danger-title">
+            Delete booking
+          </div>
+
+          <div className="booking-danger-help">
+            Permanently remove this booking and
+            its related records.
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="booking-delete-button"
+          disabled={actionDisabled}
+          onClick={deleteBooking}
+        >
+          {deleteLoading
+            ? "Deleting..."
+            : "Delete booking"}
+        </button>
       </div>
 
       <style jsx>{`
@@ -503,9 +749,87 @@ export default function BookingActions({
           resize: vertical;
         }
 
-        /* Small emergency card at the very bottom */
+        .booking-reset-box {
+          margin-top: 2px;
+          padding: 10px;
+          border: 1px solid #e7dfda;
+          border-radius: 9px;
+          background: #fbf9f8;
+        }
+
+        .booking-reset-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .booking-reset-title {
+          font-size: 10px;
+          font-weight: 700;
+          color: #756b6b;
+        }
+
+        .booking-reset-help {
+          margin-top: 2px;
+          font-size: 9px;
+          line-height: 1.3;
+          color: #9a9090;
+        }
+
+        .booking-reset-toggle {
+          flex: 0 0 auto;
+          border: 1px solid #e1d8d4;
+          border-radius: 6px;
+          background: white;
+          color: #756b6b;
+          padding: 5px 8px;
+          font-family: inherit;
+          font-size: 9px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .booking-reset-controls {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .booking-reset-controls select {
+          min-width: 0;
+          height: 30px;
+          padding: 0 7px;
+          border: 1px solid #e1d8d4;
+          border-radius: 6px;
+          background: white;
+          color: #756b6b;
+          font-family: inherit;
+          font-size: 9px;
+        }
+
+        .booking-reset-button {
+          height: 30px;
+          padding: 0 9px;
+          border: 1px solid #d9ceca;
+          border-radius: 6px;
+          background: #f5f1ef;
+          color: #665d5d;
+          font-family: inherit;
+          font-size: 9px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .booking-reset-button:disabled,
+        .booking-reset-toggle:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
         .booking-admin-override {
-          margin-top: 18px;
+          margin-top: 8px;
           padding: 9px 10px;
           border: 1px solid #eadfd9;
           border-radius: 8px;
@@ -580,6 +904,50 @@ export default function BookingActions({
 
         .booking-admin-override-button:disabled,
         .booking-admin-override-toggle:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .booking-danger-zone {
+          margin-top: 4px;
+          padding: 11px 10px;
+          border: 1px solid #ead8d6;
+          border-radius: 8px;
+          background: #fffafa;
+        }
+
+        .booking-danger-title {
+          font-size: 10px;
+          font-weight: 700;
+          color: #8b4f4a;
+        }
+
+        .booking-danger-help {
+          margin-top: 2px;
+          margin-bottom: 8px;
+          font-size: 9px;
+          line-height: 1.3;
+          color: #a0807d;
+        }
+
+        .booking-delete-button {
+          width: 100%;
+          height: 31px;
+          border: 1px solid #dfc4c1;
+          border-radius: 7px;
+          background: #fff4f3;
+          color: #8b4f4a;
+          font-family: inherit;
+          font-size: 10px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .booking-delete-button:hover {
+          background: #fcedeb;
+        }
+
+        .booking-delete-button:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }

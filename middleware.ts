@@ -1,7 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export async function middleware(
+  request: NextRequest
+) {
   let response = NextResponse.next({
     request,
   });
@@ -16,40 +18,35 @@ export async function middleware(request: NextRequest) {
         },
 
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set({
-              name,
-              value,
-              ...options,
-            });
-          });
+          cookiesToSet.forEach(
+            ({ name, value, options }) => {
+              request.cookies.set({
+                name,
+                value,
+                ...options,
+              });
+            }
+          );
 
           response = NextResponse.next({
             request,
           });
 
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options);
-          });
+          cookiesToSet.forEach(
+            ({ name, value, options }) => {
+              response.cookies.set(
+                name,
+                value,
+                options
+              );
+            }
+          );
         },
       },
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const pathname = request.nextUrl.pathname;
-
-  const isAdminRoute = pathname.startsWith("/admin");
-  const isLoginPage = pathname === "/admin/login";
-
-  if (isAdminRoute && !isLoginPage && !user) {
-    return NextResponse.redirect(
-      new URL("/admin/login", request.url)
-    );
-  }
+  await supabase.auth.getUser();
 
   return response;
 }

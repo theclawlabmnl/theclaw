@@ -10,7 +10,9 @@ export default function AdminShell({
     <div className="admin-app-shell">
       <aside className="admin-sidebar">
         <div className="admin-sidebar-brand">
-          <div className="admin-brand-mark">CL</div>
+          <div className="admin-brand-mark">
+            CL
+          </div>
 
           <div>
             <div className="admin-brand-name">
@@ -53,6 +55,8 @@ export default function AdminShell({
           </div>
 
           <AdminNav />
+
+          <LogoutButton />
         </header>
 
         <main className="admin-main">
