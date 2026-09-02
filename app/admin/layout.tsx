@@ -10,7 +10,7 @@ export default async function AdminLayout({
 }: {
   children: ReactNode;
 }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   const {
     data: { user },
