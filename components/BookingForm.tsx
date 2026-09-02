@@ -1380,7 +1380,7 @@ export default function BookingForm({
           availability. Your selected
           date/time is still a request and
           will only be confirmed after
-          Nailtech approval.
+          approval.
         </div>
 
         {/* REMOVAL */}

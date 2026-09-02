@@ -1,258 +1,442 @@
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { supabaseAdmin } from "@/lib/supabase-admin";
-import { formatDate, peso } from "@/lib/utils";
-import CopyStatusLink from "@/components/CopyStatusLink";
+
+import {
+  supabaseAdmin,
+} from "@/lib/supabase-admin";
+
+import StatusAutoRefresh from "@/components/StatusAutoRefresh";
+
+const STATUS_WINDOW_DAYS = 5;
+
+function getAppointmentDateTime(
+  dateValue: string | null | undefined,
+  timeValue: string | null | undefined
+): Date | null {
+  if (
+    !dateValue ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+  ) {
+    return null;
+  }
+
+  const time = String(timeValue || "00:00").slice(0, 5);
+
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    return null;
+  }
+
+  const date = new Date(
+    `${dateValue}T${time}:00+08:00`
+  );
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
+}
+
+function hasActiveStatusAccess(
+  appointmentDate: string | null | undefined,
+  appointmentTime: string | null | undefined
+) {
+  const appointment = getAppointmentDateTime(
+    appointmentDate,
+    appointmentTime
+  );
+
+  if (!appointment) {
+    return false;
+  }
+
+  const expiry =
+    appointment.getTime() +
+    STATUS_WINDOW_DAYS *
+      24 *
+      60 *
+      60 *
+      1000;
+
+  return Date.now() <= expiry;
+}
+
+function getStatusContent(status: string) {
+  switch (status) {
+    case "pending":
+      return {
+        label: "Pending",
+        title: "Your booking request is pending.",
+        description:
+          "We are reviewing your booking request. Please check this page again for updates.",
+        tone: "pending",
+      };
+
+    case "approved":
+      return {
+        label: "Payment Required",
+        title: "Your booking has been approved.",
+        description:
+          "Your appointment is ready for the payment step. Please submit the required down payment to secure your appointment.",
+        tone: "approved",
+      };
+
+    case "payment_submitted":
+      return {
+        label: "Payment Submitted",
+        title: "Your payment is being reviewed.",
+        description:
+          "Thank you! Your payment proof has been received and is now being reviewed by The Claw Lab MNL.",
+        tone: "review",
+      };
+
+    case "confirmed":
+      return {
+        label: "Confirmed",
+        title: "Your appointment is confirmed ✨",
+        description:
+          "Your payment has been verified and your appointment is officially confirmed.",
+        tone: "confirmed",
+      };
+
+    case "completed":
+      return {
+        label: "Completed",
+        title: "Your appointment has been completed. ♡",
+        description:
+          "Thank you for visiting The Claw Lab MNL.",
+        tone: "completed",
+      };
+
+    case "cancelled":
+      return {
+        label: "Cancelled",
+        title: "This booking has been cancelled.",
+        description:
+          "Please message us if you need assistance.",
+        tone: "cancelled",
+      };
+
+    case "rejected":
+      return {
+        label: "Not Approved",
+        title: "This booking request was not approved.",
+        description:
+          "Please message us if you need help with another booking.",
+        tone: "rejected",
+      };
+
+    default:
+      return {
+        label: "Updated",
+        title: "Your booking status has been updated.",
+        description:
+          "Please check this page again for the latest update.",
+        tone: "default",
+      };
+  }
+}
 
 export default async function Status({
   params,
 }: {
-  params: Promise<{ token: string }>;
+  params: Promise<{
+    token: string;
+  }>;
 }) {
   const { token } = await params;
+
   const db = supabaseAdmin();
 
   const { data: booking } = await db
     .from("bookings")
-    .select("*,booking_services(*)")
+    .select(
+      `
+      id,
+      status,
+      reference_code,
+      customer_name,
+      preferred_date,
+      preferred_time,
+      access_token
+      `
+    )
     .eq("access_token", token)
     .single();
 
+  /*
+   * BOOKING NOT FOUND
+   */
   if (!booking) {
     return (
-      <main className="form-page">
-        <div className="container card">
-          <div className="kicker">Booking status</div>
-          <h1 className="serif">Booking not found</h1>
-          <p className="muted">
-            We couldn't find this booking link. Please check the link and try again.
-          </p>
+      <main className="status-page">
+        <div className="status-page-inner">
+          <div className="status-card">
+            <div className="status-brand">
+              The Claw Lab MNL
+            </div>
+
+            <div className="status-label">
+              Booking status
+            </div>
+
+            <h1>
+              Booking not found
+            </h1>
+
+            <p className="status-description">
+              We couldn't find this booking.
+              Please check your booking ID or
+              return to the status lookup page.
+            </p>
+
+            <Link
+              href="/status"
+              className="status-primary-button"
+            >
+              Check another booking
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  /*
+   * STATUS EXPIRY
+   */
+  const statusActive = hasActiveStatusAccess(
+    booking.preferred_date,
+    booking.preferred_time
+  );
+
+  if (!statusActive) {
+    return (
+      <main className="status-page">
+        <div className="status-page-inner">
+          <div className="status-card">
+            <div className="status-brand">
+              The Claw Lab MNL
+            </div>
+
+            <div className="status-label">
+              Booking status
+            </div>
+
+            <h1>
+              Status no longer available
+            </h1>
+
+            <p className="status-description">
+              Online booking status is available
+              until 5 days after your scheduled
+              appointment time.
+            </p>
+
+            <Link
+              href="/status"
+              className="status-primary-button"
+            >
+              Check another booking
+            </Link>
+
+            <p className="status-help">
+              Need help? Message us.
+            </p>
+          </div>
         </div>
       </main>
     );
   }
 
   const status = String(booking.status || "");
-  const remaining = Math.max(
-    0,
-    Number(booking.estimated_total || 0) - Number(booking.down_payment || 0)
-  );
+
+  const content = getStatusContent(status);
+
+  const canViewConfirmation =
+    status === "confirmed" ||
+    status === "completed";
+
+  const appointmentText =
+    booking.preferred_date || "—";
+
+  const timeText =
+    booking.preferred_time
+      ? ` · ${booking.preferred_time}`
+      : "";
 
   return (
-    <main className="form-page">
-      <div className="container" style={{ maxWidth: 780 }}>
-        <div className="kicker">The Claw Lab MNL</div>
-        <h1 className="serif" style={{ fontSize: 48, margin: "8px 0 18px" }}>
-          Booking Status
-        </h1>
+    <main className="status-page">
 
-        <div className="card">
-          <span className="status-pill">
-            {status === "pending"
-              ? "Pending"
-              : status === "approved"
-                ? "Approved · Payment Required"
-                : status === "payment_submitted"
-                  ? "Payment Submitted"
-                  : status === "confirmed"
-                    ? "Confirmed"
-                    : status === "completed"
-                      ? "Completed"
-                      : status}
-          </span>
+      {status === "payment_submitted" && (
+        <StatusAutoRefresh />
+      )}
 
-          <h2 className="serif" style={{ marginBottom: 6 }}>
-            {booking.reference_code}
-          </h2>
+      <div className="status-page-inner">
 
-          <p>
-            <strong>{formatDate(booking.preferred_date)}</strong>
-            <br />
-            {booking.preferred_time}
-          </p>
+        <div className="status-card">
 
+          {/* BRAND */}
+          <div className="status-brand">
+            The Claw Lab MNL
+          </div>
+
+          {/* HEADER */}
+          <div className="status-header">
+
+        
+
+            <h1>
+              Booking Status
+            </h1>
+
+          </div>
+
+          {/* STATUS */}
           <div
-            className="notice"
-            style={{
-              marginTop: 20,
-              lineHeight: 1.7,
-            }}
+            className={`status-pill status-pill-${content.tone}`}
           >
-            {status === "pending" && (
-              <>
-                <strong>Your booking request has been submitted.</strong>
-                <br /><br />
-                Please message us through one of our social media accounts for faster transactions and communication regarding your request.
-                <br /><br />
-                <strong>Please do not close this page.</strong> You may copy or bookmark this link and return to it anytime to check the status of your request.
-                <br /><br />
-                Once your request is approved by our <strong>Nailtech</strong>, you will be able to proceed to the payment step from this page.
-                <br /><br />
-                Your appointment is <strong>not yet confirmed</strong> at this stage.
-              </>
-            )}
+            <span className="status-pill-dot" />
+            {content.label}
+          </div>
+
+          {/* MESSAGE */}
+          <div className="status-message">
+
+            <h2>
+              {content.title}
+            </h2>
+
+            <p>
+              {content.description}
+            </p>
+
+          </div>
+
+          {/* BOOKING SUMMARY */}
+          <section className="status-summary">
+
+            <div className="status-summary-title">
+              Booking Summary
+            </div>
+
+            <div className="status-summary-grid">
+
+              <div className="status-summary-item">
+                <span>
+                  Client
+                </span>
+
+                <strong>
+                  {booking.customer_name || "—"}
+                </strong>
+              </div>
+
+              <div className="status-summary-item">
+                <span>
+                  Appointment
+                </span>
+
+                <strong>
+                  {appointmentText}
+                  {timeText}
+                </strong>
+              </div>
+
+              <div className="status-summary-item">
+                <span>
+                  Reference
+                </span>
+
+                <strong>
+                  {booking.reference_code || "—"}
+                </strong>
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* ACTION */}
+          <div className="status-action">
 
             {status === "approved" && (
-              <>
-                <strong>Your booking request has been approved by our Nailtech.</strong>
-                <br /><br />
-                Your appointment is now ready for the payment step. Please proceed with your down payment when ready.
-                <br /><br />
-                Your appointment will only be confirmed after your payment proof is reviewed and verified by our Nailtech.
-              </>
+              <Link
+                href={`/payment/${token}`}
+                className="status-primary-button"
+              >
+                Proceed to Payment
+              </Link>
+            )}
+
+            {canViewConfirmation && (
+              <Link
+                href={`/confirmed/${token}`}
+                className="status-primary-button"
+              >
+                View Confirmation
+              </Link>
             )}
 
             {status === "payment_submitted" && (
-              <>
-                <strong>Your payment proof has been submitted.</strong>
-                <br /><br />
-                Thank you. Our Nailtech is currently reviewing your payment proof. Please keep this page and your booking link so you can return and check your status.
-              </>
-            )}
-
-            {status === "confirmed" && (
-              <>
-                <strong>Your appointment is confirmed ✨</strong>
-                <br /><br />
-                Your payment has been verified by our Nailtech and your appointment is now officially confirmed.
-              </>
-            )}
-
-            {status === "completed" && (
-              <>
-                <strong>Your appointment has been completed. ♡</strong>
-                <br /><br />
-                We hope you loved your Claw Lab experience.
-              </>
-            )}
-
-            {status === "rejected" && (
-              <>
-                <strong>Your booking request was not approved.</strong>
-                <br /><br />
-                Please message us through Instagram or Messenger if you'd like assistance with another date or time.
-              </>
-            )}
-
-            {status === "cancelled" && (
-              <>
-                <strong>This booking has been cancelled.</strong>
-                <br /><br />
-                Please contact The Claw Lab MNL through Instagram or Messenger for assistance.
-              </>
-            )}
-          </div>
-
-          <div
-            className="actions"
-            style={{ marginTop: 20 }}
-          >
-            {status === "approved" && (
-              <Link className="btn" href={`/payment/${token}`}>
-                Proceed to payment →
-              </Link>
-            )}
-
-            {status === "confirmed" && (
-              <Link className="btn" href={`/confirmed/${token}`}>
-                View confirmation →
-              </Link>
-            )}
-
-            {status === "completed" && (
-              <Link className="btn" href={`/review/${token}`}>
-                Leave a review →
-              </Link>
-            )}
-
-            {(status === "pending" || status === "payment_submitted") && (
-              <CopyStatusLink />
-            )}
-          </div>
-
-          {(status === "pending" || status === "rejected" || status === "cancelled") && (
-            <div
-              style={{
-                marginTop: 28,
-                paddingTop: 20,
-                borderTop: "1px solid var(--line)",
-              }}
-            >
-              <div className="kicker">Faster communication</div>
-              <p className="muted">
-                Message us through Instagram or Messenger for faster assistance.
-              </p>
-              <div className="actions">
-                <a
-                  className="btn secondary small"
-                  href="https://instagram.com/theclawlabmnl"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Instagram
-                </a>
-                <a
-                  className="btn secondary small"
-                  href="https://m.me/theclawlabmnl"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Messenger
-                </a>
-              </div>
-            </div>
-          )}
-
-          <div
-            style={{
-              marginTop: 28,
-              paddingTop: 20,
-              borderTop: "1px solid var(--line)",
-            }}
-          >
-            <div className="kicker">Appointment summary</div>
-
-            {booking.booking_services?.map((item: any) => (
-              <div
-                key={item.id}
-                style={{
-                  padding: "10px 0",
-                  borderBottom: "1px solid var(--line)",
-                }}
-              >
+              <div className="status-review-box">
                 <strong>
-                  {item.service_name}
+                  Payment Proof submitted
                 </strong>
-                {item.variation_name && (
-                  <div className="muted">
-                    {item.variation_name}
-                  </div>
-                )}
-                <div>{peso(item.price)}</div>
-              </div>
-            ))}
 
-            <div
-              style={{
-                display: "grid",
-                gap: 5,
-                marginTop: 16,
-              }}
-            >
-              <div>
-                Estimated total: <strong>{peso(booking.estimated_total)}</strong>
+                <p>
+                  This page will automatically
+                  update once your payment has
+                  been verified.
+                </p>
               </div>
-              <div>
-                Down payment: <strong>{peso(booking.down_payment)}</strong>
-              </div>
-              <div>
-                Remaining balance: <strong>{peso(remaining)}</strong>
-              </div>
-            </div>
+            )}
+
           </div>
+
+          {/* CONTACT */}
+          <div className="status-contact">
+
+            <p>
+              Questions? Message us.
+            </p>
+
+            <div className="status-contact-links">
+
+              <a
+                href="https://instagram.com/theclawlabmnl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Instagram
+              </a>
+
+              <a
+                href="https://m.me/theclawlabmnl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Messenger
+              </a>
+
+            </div>
+
+          </div>
+
+          {/* FOOTER */}
+          <div className="status-footer">
+
+            <Link href="/status">
+              Check another booking
+            </Link>
+
+          </div>
+
         </div>
+
       </div>
+
     </main>
   );
 }

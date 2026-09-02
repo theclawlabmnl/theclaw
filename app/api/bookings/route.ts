@@ -16,6 +16,10 @@ import {
   notifyNewBooking,
 } from "@/lib/notifications";
 
+import {
+  GET as getAvailability,
+} from "@/app/api/availability/route";
+
 const MAX_INSPIRATION_FILES = 8;
 const MAX_IMAGE_MB = 8;
 const MAX_STUDENT_FILE_MB = 8;
@@ -55,22 +59,91 @@ type AvailabilityResult = {
   error?: string;
 };
 
-function toMinutes(
-  value: string | null | undefined
-): number | null {
-  if (!value) {
+function normalizeTime(
+  value: unknown
+): string | null {
+  if (typeof value !== "string") {
     return null;
   }
 
-  const [hoursRaw, minutesRaw] =
-    String(value)
-      .slice(0, 5)
-      .split(":");
+  const raw = value.trim();
 
-  const hours = Number(hoursRaw);
-  const minutes = Number(
-    minutesRaw
+  if (!raw) {
+    return null;
+  }
+
+  const twentyFourHour = raw.match(
+    /^(\d{1,2}):(\d{2})$/
   );
+
+  if (twentyFourHour) {
+    const hours = Number(
+      twentyFourHour[1]
+    );
+    const minutes = Number(
+      twentyFourHour[2]
+    );
+
+    if (
+      hours >= 0 &&
+      hours <= 23 &&
+      minutes >= 0 &&
+      minutes <= 59
+    ) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    }
+
+    return null;
+  }
+
+  const twelveHour = raw.match(
+    /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+  );
+
+  if (!twelveHour) {
+    return null;
+  }
+
+  let hours = Number(
+    twelveHour[1]
+  );
+  const minutes = Number(
+    twelveHour[2]
+  );
+  const suffix = twelveHour[3].toUpperCase();
+
+  if (
+    hours < 1 ||
+    hours > 12 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null;
+  }
+
+  if (suffix === "AM") {
+    if (hours === 12) {
+      hours = 0;
+    }
+  } else if (hours !== 12) {
+    hours += 12;
+  }
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function toMinutes(
+  value: string | null | undefined
+): number | null {
+  const normalized = normalizeTime(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const [hoursRaw, minutesRaw] = normalized.split(":");
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw);
 
   if (
     !Number.isFinite(hours) ||
@@ -96,12 +169,7 @@ function isValidDate(
 function isValidTime(
   value: unknown
 ): value is string {
-  return (
-    typeof value === "string" &&
-    /^\d{2}:\d{2}$/.test(
-      value
-    )
-  );
+  return normalizeTime(value) !== null;
 }
 
 function getDayOfWeek(
@@ -240,378 +308,80 @@ async function getBookingDuration(
   );
 }
 
-async function checkAvailability(
-  db: ReturnType<typeof supabaseAdmin>,
+async function validateSelectedSlot(
+  request: NextRequest,
   {
-    bookingId,
     date,
-    time,
+    selectedTime,
     duration,
   }: {
-    bookingId?: string;
     date: string;
-    time: string;
+    selectedTime: string;
     duration: number;
   }
 ): Promise<AvailabilityResult> {
-  const requestedStart =
-    toMinutes(time);
+  const normalizedTime =
+    normalizeTime(selectedTime);
 
-  if (
-    requestedStart ===
-    null
-  ) {
+  if (!normalizedTime) {
     return {
       ok: false,
       error:
-        "Invalid appointment time.",
+        "Invalid appointment time. Please choose one of the available times.",
     };
   }
 
-  const requestedEnd =
-    requestedStart +
-    Math.max(
-      30,
-      duration
-    );
-
-  const dayOfWeek =
-    getDayOfWeek(date);
-
-  if (
-    dayOfWeek < 0
-  ) {
-    return {
-      ok: false,
-      error:
-        "Invalid appointment date.",
-    };
-  }
-
-  const [
-    ruleResult,
-    overrideResult,
-    bookingResult,
-  ] =
-    await Promise.all([
-      db
-        .from(
-          "availability_rules"
-        )
-        .select(
-          "day_of_week,is_available,start_time,end_time,active"
-        )
-        .eq(
-          "day_of_week",
-          dayOfWeek
-        )
-        .eq(
-          "active",
-          true
-        )
-        .maybeSingle(),
-
-      db
-        .from(
-          "availability_overrides"
-        )
-        .select(
-          "override_date,start_time,end_time,kind"
-        )
-        .eq(
-          "override_date",
-          date
-        ),
-
-      db
-        .from("bookings")
-        .select(
-          "id,preferred_date,preferred_time,status"
-        )
-        .eq(
-          "preferred_date",
-          date
-        )
-        .in(
-          "status",
-          [
-            "pending",
-            "approved",
-            "payment_submitted",
-            "confirmed",
-          ]
-        ),
-    ]);
-
-  if (
-    ruleResult.error
-  ) {
-    throw ruleResult.error;
-  }
-
-  if (
-    overrideResult.error
-  ) {
-    throw overrideResult.error;
-  }
-
-  if (
-    bookingResult.error
-  ) {
-    throw bookingResult.error;
-  }
-
-  let windows: Array<
-    [number, number]
-  > = [];
-
-  const rule =
-    ruleResult.data;
-
-  if (
-    rule?.is_available &&
-    rule.start_time &&
-    rule.end_time
-  ) {
-    const start =
-      toMinutes(
-        rule.start_time
-      );
-
-    const end =
-      toMinutes(
-        rule.end_time
-      );
-
-    if (
-      start !== null &&
-      end !== null &&
-      end > start
-    ) {
-      windows.push([
-        start,
-        end,
-      ]);
-    }
-  }
-
-  const overrides =
-    overrideResult.data ||
-    [];
-
-  /*
-   * OPEN EXTRA TIME
-   */
-  overrides.forEach(
-    (
-      override: any
-    ) => {
-      if (
-        override.kind !==
-        "open"
-      ) {
-        return;
-      }
-
-      const start =
-        toMinutes(
-          override.start_time
-        );
-
-      const end =
-        toMinutes(
-          override.end_time
-        );
-
-      if (
-        start !== null &&
-        end !== null &&
-        end > start
-      ) {
-        windows.push([
-          start,
-          end,
-        ]);
-      }
-    }
+  const url = new URL(request.url);
+  url.pathname = "/api/availability";
+  url.search = "";
+  url.searchParams.set("date", date);
+  url.searchParams.set(
+    "duration",
+    String(Math.max(30, duration))
   );
 
-  /*
-   * BLOCK TIME
-   */
-  overrides.forEach(
-    (
-      override: any
-    ) => {
-      if (
-        override.kind !==
-        "block"
-      ) {
-        return;
-      }
-
-      const blockStart =
-        toMinutes(
-          override.start_time
-        );
-
-      const blockEnd =
-        toMinutes(
-          override.end_time
-        );
-
-      if (
-        blockStart ===
-          null ||
-        blockEnd === null ||
-        blockEnd <=
-          blockStart
-      ) {
-        return;
-      }
-
-      const nextWindows: Array<
-        [number, number]
-      > = [];
-
-      windows.forEach(
-        (
-          [
-            start,
-            end,
-          ]: [number, number]
-        ) => {
-          if (
-            blockEnd <=
-              start ||
-            blockStart >=
-              end
-          ) {
-            nextWindows.push([
-              start,
-              end,
-            ]);
-
-            return;
-          }
-
-          if (
-            blockStart >
-            start
-          ) {
-            nextWindows.push([
-              start,
-              Math.min(
-                blockStart,
-                end
-              ),
-            ]);
-          }
-
-          if (
-            blockEnd <
-            end
-          ) {
-            nextWindows.push([
-              Math.max(
-                blockEnd,
-                start
-              ),
-              end,
-            ]);
-          }
-        }
-      );
-
-      windows =
-        nextWindows;
-    }
-  );
-
-  const insideSchedule =
-    windows.some(
-      (
-        [
-          start,
-          end,
-        ]: [number, number]
-      ): boolean =>
-        requestedStart >=
-          start &&
-        requestedEnd <=
-          end
+  const availabilityResponse =
+    await getAvailability(
+      new NextRequest(url)
     );
 
-  if (
-    !insideSchedule
-  ) {
+  let result: any = null;
+
+  try {
+    result =
+      await availabilityResponse.json();
+  } catch {
+    result = null;
+  }
+
+  if (!availabilityResponse.ok) {
     return {
       ok: false,
       error:
-        "That requested time is outside current availability. Please choose another time.",
+        result?.error ||
+        "Unable to check appointment availability.",
     };
   }
 
-  /*
-   * ONE CLIENT AT A TIME
-   */
-  const activeBookings =
-    (
-      bookingResult.data ||
-      []
-    ).filter(
-      (
-        booking: any
-      ): boolean =>
-        booking.id !==
-        bookingId
+  const slots = Array.isArray(result?.slots)
+    ? result.slots
+    : [];
+
+  const selectedSlotExists =
+    slots.some(
+      (slot: unknown) =>
+        normalizeTime(slot) === normalizedTime
     );
 
-  for (
-    const booking of
-      activeBookings
-  ) {
-    const existingStart =
-      toMinutes(
-        booking.preferred_time
-      );
-
-    if (
-      existingStart ===
-      null
-    ) {
-      continue;
-    }
-
-    const existingDuration =
-      await getBookingDuration(
-        db,
-        booking.id
-      );
-
-    const existingEnd =
-      existingStart +
-      existingDuration;
-
-    if (
-      overlaps(
-        requestedStart,
-        requestedEnd,
-        existingStart,
-        existingEnd
-      )
-    ) {
-      return {
-        ok: false,
-        error:
-          "That appointment overlaps another client's booking. Please choose another time.",
-      };
-    }
+  if (!selectedSlotExists) {
+    return {
+      ok: false,
+      error:
+        "That selected appointment time is no longer available. Please choose another available time.",
+    };
   }
 
-  return {
-    ok: true,
-  };
+  return { ok: true };
 }
 
 async function resolveServices(
@@ -977,15 +747,16 @@ export async function POST(
       );
     }
 
-    if (
-      !isValidTime(
+    const normalizedPreferredTime =
+      normalizeTime(
         payload.preferred_time
-      )
-    ) {
+      );
+
+    if (!normalizedPreferredTime) {
       return NextResponse.json(
         {
           error:
-            "Invalid appointment time.",
+            "Invalid appointment time. Please choose one of the available times.",
         },
         {
           status: 400,
@@ -1450,19 +1221,14 @@ export async function POST(
      * AVAILABILITY
      */
     const availability =
-      await checkAvailability(
-        db,
+      await validateSelectedSlot(
+        request,
         {
           date:
             payload.preferred_date,
 
-          time:
-            String(
-              payload.preferred_time
-            ).slice(
-              0,
-              5
-            ),
+          selectedTime:
+            payload.preferred_time,
 
           duration,
         }
@@ -1538,12 +1304,7 @@ export async function POST(
             payload.preferred_date,
 
           preferred_time:
-            String(
-              payload.preferred_time
-            ).slice(
-              0,
-              5
-            ),
+            normalizedPreferredTime,
 
           removal:
             String(

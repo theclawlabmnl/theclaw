@@ -1,14 +1,21 @@
 export const dynamic = "force-dynamic";
 
+import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { peso } from "@/lib/utils";
 import PaymentForm from "@/components/PaymentForm";
+
+const BOOKING_PAYMENT = 200;
+const QRPH_FEE = 5;
+
+type PaymentPageProps = {
+  params: Promise<{
+    token: string;
+  }>;
+};
 
 export default async function Payment({
   params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
+}: PaymentPageProps) {
   const { token } = await params;
 
   const db = supabaseAdmin();
@@ -17,7 +24,20 @@ export default async function Payment({
     await Promise.all([
       db
         .from("bookings")
-        .select("*")
+        .select(
+          `
+          id,
+          status,
+          reference_code,
+          customer_name,
+          mobile_number,
+          social_handle,
+          preferred_date,
+          preferred_time,
+          estimated_total,
+          down_payment
+        `
+        )
         .eq("access_token", token)
         .single(),
 
@@ -33,125 +53,159 @@ export default async function Payment({
         ]),
     ]);
 
-  const settings = Object.fromEntries(
-    (settingsRows || []).map((item) => [
-      item.key,
-      item.value,
-    ])
-  );
+  const settings: Record<string, string> =
+    Object.fromEntries(
+      (settingsRows ?? []).map((item) => [
+        item.key,
+        String(item.value ?? ""),
+      ])
+    );
 
-  if (
-    !booking ||
-    booking.status !== "approved"
-  ) {
+  if (!booking || booking.status !== "approved") {
     return (
-      <main className="form-page">
-        <div className="container">
-          <div className="card">
-            <div className="kicker">
+      <main className="payment-page">
+        <div className="payment-page-inner">
+          <section className="payment-section-clean">
+            <div className="payment-section-label-clean">
               Payment
             </div>
 
-            <h1 className="serif">
+            <h1 className="payment-heading-clean">
               Payment unavailable
             </h1>
 
-            <p className="muted">
-              Payment is not currently available
-              for this booking.
+            <p className="payment-description-clean">
+              Payment is not currently available for
+              this booking. Please check your booking
+              status or contact TheClawLab MNL.
             </p>
-          </div>
+
+            <Link
+              href={`/status/${token}`}
+              className="payment-submit-clean"
+              style={{
+                display: "block",
+                boxSizing: "border-box",
+                textAlign: "center",
+                textDecoration: "none",
+              }}
+            >
+              View booking status
+            </Link>
+          </section>
         </div>
       </main>
     );
   }
 
-  const qrphFee = Number(
-    settings.qrph_fee || 5
+  const bookingPayment =
+    Number(booking.down_payment ?? 0) > 0
+      ? Number(booking.down_payment)
+      : BOOKING_PAYMENT;
+
+  const bookingTotal =
+    Number(booking.estimated_total ?? 0);
+
+  const remainingBalance = Math.max(
+    bookingTotal - bookingPayment,
+    0
   );
 
-  const gcashAmount = 200;
-  const qrphAmount = 200 + qrphFee;
+  const qrphFee =
+    Number(settings.qrph_fee ?? 0) > 0
+      ? Number(settings.qrph_fee)
+      : QRPH_FEE;
 
   return (
-    <main className="form-page">
-      <div
-        className="container"
-        style={{ maxWidth: 760 }}
-      >
-        <div className="kicker">
-          The Claw Lab MNL
-        </div>
+    <main className="payment-page">
+      <div className="payment-page-inner">
 
-        <h1 className="serif">
-          Payment Required
-        </h1>
-
-        <p className="muted">
-          Your appointment has been approved.
-          Please choose your preferred payment
-          method and submit your payment proof.
-        </p>
-
-        <div className="card">
-          <div
-            style={{
-              marginBottom: 24,
-              paddingBottom: 18,
-              borderBottom:
-                "1px solid var(--line)",
-            }}
-          >
-            <div className="kicker">
-              Down payment
-            </div>
-
-            <h2
-              className="serif"
-              style={{
-                margin:
-                  "4px 0 8px",
-                fontSize: 30,
-              }}
-            >
-              Choose your payment method
-            </h2>
-
-            <p className="muted">
-              Scan the QR code using your
-              preferred banking or e-wallet app.
-            </p>
+        {/* HEADER */}
+        <header className="payment-page-header">
+          <div className="payment-section-label-clean">
+            The Claw Lab MNL
           </div>
 
-          <PaymentForm
-            token={token}
-            gcash={{
-              ...settings,
-              amount: gcashAmount,
-            }}
-            qrph={{
-              ...settings,
-              amount: qrphAmount,
-            }}
-          />
+          <h1>
+            Payment Required
+          </h1>
 
-          <div
-            className="notice"
-            style={{
-              marginTop: 24,
-            }}
-          >
-            <strong>
-              GCash:
-            </strong>{" "}
-            {peso(gcashAmount)}
-            {" · "}
-            <strong>
-              QR PH:
-            </strong>{" "}
-            {peso(qrphAmount)}
-          </div>
+          <p>
+            Your appointment has been approved.
+            Please pay the required down payment
+            and upload your payment proof below.
+          </p>
+        </header>
+
+        <PaymentForm
+          token={token}
+
+          customerName={
+            booking.customer_name || ""
+          }
+
+          mobileNumber={
+            booking.mobile_number
+          }
+
+          socialHandle={
+            booking.social_handle
+          }
+
+          referenceCode={
+            booking.reference_code
+          }
+
+          preferredDate={
+            booking.preferred_date
+          }
+
+          preferredTime={
+            booking.preferred_time
+          }
+
+          bookingTotal={bookingTotal}
+
+          remainingBalance={
+            remainingBalance
+          }
+
+          gcash={{
+            gcash_name:
+              settings.gcash_name,
+
+            gcash_number:
+              settings.gcash_number,
+
+            gcash_qr:
+              settings.gcash_qr,
+
+            amount:
+              bookingPayment,
+          }}
+
+          qrph={{
+            qrph_qr:
+              settings.qrph_qr,
+
+            amount:
+              bookingPayment,
+
+            processingFee:
+              qrphFee,
+
+            totalPayable:
+              bookingPayment +
+              qrphFee,
+          }}
+        />
+
+        <div className="payment-back">
+          <Link href={`/status/${token}`}>
+            ← Back to booking status
+          </Link>
         </div>
+
       </div>
     </main>
   );

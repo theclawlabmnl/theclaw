@@ -2,90 +2,128 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { peso } from "@/lib/utils";
 
-const GCASH_AMOUNT = 200;
+type PaymentConfig = {
+  gcash_name?: string;
+  gcash_number?: string;
+  gcash_qr?: string;
+  qrph_qr?: string;
+  amount: number;
+  processingFee?: number;
+  totalPayable?: number;
+};
+
+type PaymentFormProps = {
+  token: string;
+
+  customerName: string;
+  mobileNumber?: string | null;
+  socialHandle?: string | null;
+
+  referenceCode?: string | null;
+  preferredDate?: string | null;
+  preferredTime?: string | null;
+
+  bookingTotal: number;
+  remainingBalance: number;
+
+  gcash: PaymentConfig;
+  qrph: PaymentConfig;
+};
+
+type Method = "gcash" | "qrph";
 
 export default function PaymentForm({
   token,
+  customerName,
+  mobileNumber,
+  socialHandle,
+  referenceCode,
+  preferredDate,
+  preferredTime,
+  bookingTotal,
+  remainingBalance,
   gcash,
   qrph,
-}: {
-  token: string;
-  gcash: any;
-  qrph: any;
-}) {
+}: PaymentFormProps) {
   const router = useRouter();
 
-  const [method, setMethod] =
-    useState<"gcash" | "qrph">("gcash");
+  const [method, setMethod] = useState<Method>("gcash");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
-  const [file, setFile] =
-    useState<File | null>(null);
-
-  const [busy, setBusy] =
-    useState(false);
-
-  const [message, setMessage] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  const qrphFee = Number(
-    qrph?.qrph_fee || 5
+  const downPayment = Number(gcash.amount || 200);
+  const qrphFee = Number(qrph.processingFee || 0);
+  const qrphTotal = Number(
+    qrph.totalPayable || downPayment + qrphFee
   );
 
-  const amount =
-    method === "gcash"
-      ? GCASH_AMOUNT
-      : GCASH_AMOUNT + qrphFee;
+ async function copyGcashNumber() {
+  const number = String(gcash.gcash_number || "").trim();
 
-  const qr =
-    method === "gcash"
-      ? gcash?.gcash_qr
-      : qrph?.qrph_qr;
+  if (!number) return;
 
-  const copyGcashNumber =
-    async () => {
-      const number = String(
-        gcash?.gcash_number || ""
-      ).trim();
+  try {
+    if (
+      navigator.clipboard &&
+      window.isSecureContext
+    ) {
+      await navigator.clipboard.writeText(number);
+    } else {
+      const textarea = document.createElement("textarea");
 
-      if (!number) {
-        setError(
-          "The GCash account number has not been configured yet."
-        );
-        setMessage("");
-        return;
+      textarea.value = number;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      textarea.setAttribute("readonly", "");
+
+      document.body.appendChild(textarea);
+
+      textarea.focus();
+      textarea.select();
+
+      const copiedSuccessfully =
+        document.execCommand("copy");
+
+      document.body.removeChild(textarea);
+
+      if (!copiedSuccessfully) {
+        throw new Error("Copy failed");
       }
+    }
 
-      try {
-        await navigator.clipboard.writeText(
-          number
-        );
-
-        setError("");
-        setMessage(
-          "GCash number copied."
-        );
-      } catch {
-        setError(
-          "Unable to copy automatically. Please copy the number manually."
-        );
-        setMessage("");
-      }
-    };
-
-  const handleFileChange = (
-    selectedFile:
-      | File
-      | null
-  ) => {
     setError("");
-    setMessage("");
+    setCopied(true);
 
-    if (!selectedFile) {
+    window.setTimeout(() => {
+      setCopied(false);
+    }, 1800);
+  } catch {
+    setError(
+      "Unable to copy automatically. Please press and hold the number to copy it."
+    );
+  }
+}
+
+  function handleFileChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    setError("");
+
+    const selected = event.target.files?.[0] || null;
+
+    if (!selected) {
       setFile(null);
+      return;
+    }
+
+    if (selected.size > 8 * 1024 * 1024) {
+      setFile(null);
+      setError("Payment proof must be 8MB or smaller.");
       return;
     }
 
@@ -96,449 +134,385 @@ export default function PaymentForm({
       "image/heif",
     ];
 
-    const maxSize =
-      10 * 1024 * 1024;
-
-    if (
-      !allowedTypes.includes(
-        selectedFile.type
-      )
-    ) {
-      setError(
-        "Please upload a JPG, JPEG, PNG, or HEIC image."
-      );
+    if (!allowedTypes.includes(selected.type)) {
       setFile(null);
+      setError(
+        "Payment proof must be JPG, PNG, or HEIC."
+      );
       return;
     }
 
-    if (
-      selectedFile.size > maxSize
-    ) {
-      setError(
-        "Payment proof must be 10MB or smaller."
-      );
-      setFile(null);
-      return;
-    }
+    setFile(selected);
+  }
 
-    setFile(selectedFile);
-  };
+  async function submitPayment() {
+    setError("");
 
-  const submit = async () => {
-    if (!file || busy) {
+    if (!file) {
+      setError("Please upload your payment proof first.");
       return;
     }
 
     setBusy(true);
-    setError("");
-    setMessage("");
 
     try {
-      const data =
-        new FormData();
+      const data = new FormData();
 
-      data.append(
-        "token",
-        token
-      );
+      data.append("token", token);
+      data.append("method", method);
+      data.append("amount", String(downPayment));
+      data.append("proof", file);
 
-      data.append(
-        "method",
-        method
-      );
+      const response = await fetch("/api/payment-proof", {
+        method: "POST",
+        body: data,
+      });
 
-      data.append(
-        "amount",
-        String(amount)
-      );
-
-      data.append(
-        "proof",
-        file
-      );
-
-      const response =
-        await fetch(
-          "/api/payment-proof",
-          {
-            method: "POST",
-            body: data,
-          }
-        );
-
-      const result =
-        await response.json();
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
           result.error ||
-            "Upload failed."
+            "Unable to submit your payment proof."
         );
       }
 
-      router.push(
-        `/status/${token}`
-      );
-    } catch (err: any) {
+      router.push(`/status/${token}`);
+    } catch (submissionError: unknown) {
       setError(
-        err?.message ||
-          "Unable to submit your payment proof."
+        submissionError instanceof Error
+          ? submissionError.message
+          : "Unable to submit your payment proof."
       );
+    } finally {
       setBusy(false);
     }
-  };
+  }
 
   return (
-    <div className="payment-form">
-      {/* PAYMENT METHOD */}
-      <div>
-        <div className="kicker">
+    <div className="payment-form-clean">
+
+      {/* =====================================================
+          1 — BOOKING SUMMARY
+          ===================================================== */}
+
+      <section className="payment-section-clean">
+  <div className="payment-section-label-clean">
+    Booking Summary
+  </div>
+
+  <div className="payment-booking-summary-clean">
+
+    <div className="payment-booking-info-clean">
+      <span>Appointment</span>
+      <strong>
+        {preferredDate || "—"}
+        {preferredTime
+          ? ` · ${preferredTime}`
+          : ""}
+      </strong>
+    </div>
+
+    <div className="payment-booking-info-clean">
+      <span>Booking Reference</span>
+      <strong>
+        {referenceCode || "—"}
+      </strong>
+    </div>
+
+    <div className="payment-booking-amount-clean">
+      <span>Amount Due</span>
+      <strong>
+        {peso(downPayment)}
+      </strong>
+    </div>
+
+  </div>
+
+  <p className="payment-booking-note-clean">
+    A ₱200 down payment is required to secure your appointment.
+  </p>
+</section>
+
+    
+
+      {/* =====================================================
+          3 — PAYMENT METHOD
+          ===================================================== */}
+
+      <section className="payment-section-clean">
+
+        <div className="payment-section-label-clean">
           Payment method
         </div>
 
-        <h2
-          className="serif"
-          style={{
-            margin:
-              "4px 0 14px",
-            fontSize: 28,
-          }}
-        >
-          Choose how you'd like to pay
+        <h2 className="payment-heading-clean">
+          Choose your payment method
         </h2>
 
-        <div
-          className="payment-method-grid"
-          role="radiogroup"
-        >
-          {/* GCASH */}
+        <p className="payment-description-clean">
+          Select one of the options below to view the
+          payment details.
+        </p>
+
+        {/* SMALL METHOD PICKERS */}
+
+        <div className="payment-picker-clean">
+
           <button
             type="button"
-            className={
+            className={`payment-picker-option payment-picker-gcash ${
               method === "gcash"
-                ? "payment-method active"
-                : "payment-method"
-            }
-            onClick={() => {
-              setMethod("gcash");
-              setError("");
-              setMessage("");
-            }}
-            aria-pressed={
-              method === "gcash"
-            }
+                ? "payment-picker-selected"
+                : ""
+            }`}
+            onClick={() => setMethod("gcash")}
           >
-            <span className="payment-method-top">
-              <span>
-                <strong>
-                  GCash
-                </strong>
-
-                <small>
-                  Instant e-wallet transfer
-                </small>
-              </span>
-
-              <span className="payment-price">
-                ₱200
-              </span>
+            <span className="payment-picker-name">
+              GCash
             </span>
 
-            <span className="payment-radio">
-              {method === "gcash"
-                ? "●"
-                : "○"}
+            <span className="payment-picker-amount">
+              {peso(downPayment)}
+            </span>
+
+            <span className="payment-picker-check">
+              {method === "gcash" ? "✓" : ""}
             </span>
           </button>
 
-          {/* QR PH */}
           <button
             type="button"
-            className={
+            className={`payment-picker-option payment-picker-qrph ${
               method === "qrph"
-                ? "payment-method active"
-                : "payment-method"
-            }
-            onClick={() => {
-              setMethod("qrph");
-              setError("");
-              setMessage("");
-            }}
-            aria-pressed={
-              method === "qrph"
-            }
+                ? "payment-picker-selected"
+                : ""
+            }`}
+            onClick={() => setMethod("qrph")}
           >
-            <span className="payment-method-top">
-              <span>
-                <strong>
-                  QR PH
-                </strong>
-
-                <small>
-                  ₱5 processing fee included
-                </small>
-              </span>
-
-              <span className="payment-price">
-                ₱{amount}
-              </span>
+            <span className="payment-picker-name">
+              QR PH
             </span>
 
-            <span className="payment-radio">
-              {method === "qrph"
-                ? "●"
-                : "○"}
+            <span className="payment-picker-amount">
+              {peso(qrphTotal)}
+            </span>
+
+            <span className="payment-picker-check">
+              {method === "qrph" ? "✓" : ""}
             </span>
           </button>
-        </div>
-      </div>
 
-      {/* PAYMENT DETAILS */}
-      <div
-        className="payment-display card"
-        style={{
-          marginTop: 18,
-        }}
-      >
-        <div
-          style={{
-            textAlign: "center",
-          }}
-        >
-          <div className="kicker">
-            {method === "gcash"
-              ? "GCash"
-              : "QR PH"}
-          </div>
-
-          <h3
-            className="serif"
-            style={{
-              margin:
-                "4px 0 5px",
-              fontSize: 25,
-            }}
-          >
-            Pay ₱{amount}
-          </h3>
-
-          <p
-            className="muted"
-            style={{
-              marginTop: 0,
-            }}
-          >
-            Scan the QR code using
-            your preferred banking or
-            e-wallet app.
-          </p>
         </div>
 
-        {/* QR IMAGE */}
-        <div
-          className="payment-qr-wrap"
-          style={{
-            margin:
-              "20px auto",
-          }}
-        >
-          {qr ? (
-            <img
-              src={qr}
-              alt={`${method === "gcash" ? "GCash" : "QR PH"} QR code`}
-              className="payment-qr"
-            />
-          ) : (
-            <div
-              className="notice"
-              style={{
-                width: "100%",
-                textAlign:
-                  "center",
-              }}
-            >
-              This payment QR has not
-              been configured yet.
-              Please contact the studio.
-            </div>
-          )}
-        </div>
+        {/* SELECTED PAYMENT DETAILS */}
 
-        {/* GCASH ACCOUNT DETAILS */}
-        {method === "gcash" && (
-          <div className="gcash-details">
-            {gcash?.gcash_name && (
-              <div className="gcash-detail-row">
-                <span className="muted">
-                  Account name
-                </span>
+        <div className="payment-details-clean">
 
-                <strong>
-                  {gcash.gcash_name}
-                </strong>
-              </div>
-            )}
-
-            {gcash?.gcash_number && (
-              <div className="gcash-detail-row">
-                <span className="muted">
-                  GCash number
-                </span>
-
-                <div
-                  style={{
-                    display:
-                      "flex",
-                    alignItems:
-                      "center",
-                    justifyContent:
-                      "space-between",
-                    gap: 10,
-                  }}
-                >
-                  <strong
-                    style={{
-                      wordBreak:
-                        "break-word",
-                    }}
-                  >
-                    {gcash.gcash_number}
-                  </strong>
-
-                  <button
-                    type="button"
-                    className="btn secondary small"
-                    onClick={
-                      copyGcashNumber
-                    }
-                    style={{
-                      flex:
-                        "0 0 auto",
-                    }}
-                  >
-                    Copy
-                  </button>
+          {method === "gcash" ? (
+            <>
+              <div className="payment-details-header">
+                <div>
+                  <span>Pay via</span>
+                  <h3>GCash</h3>
                 </div>
+
+                <strong>
+                  {peso(downPayment)}
+                </strong>
               </div>
-            )}
-          </div>
-        )}
 
-        <div
-          className="notice"
-          style={{
-            marginTop: 18,
-          }}
-        >
-          Please make the payment first,
-          then upload your payment
-          screenshot below.
+              <div className="payment-qr-clean">
+                {gcash.gcash_qr ? (
+                  <img
+                    src={gcash.gcash_qr}
+                    alt="GCash QR Code"
+                  />
+                ) : (
+                  <div>
+                    GCash QR has not been configured yet.
+                  </div>
+                )}
+              </div>
+
+              <div className="payment-account-clean">
+
+                {gcash.gcash_name && (
+                  <div>
+                    <span>Account name</span>
+                    <strong>
+                      {gcash.gcash_name}
+                    </strong>
+                  </div>
+                )}
+
+                {gcash.gcash_number && (
+                  <div>
+                    <span>Account number</span>
+
+                    <div className="payment-number-clean">
+                      <strong>
+                        {gcash.gcash_number}
+                      </strong>
+
+                      <button
+                        type="button"
+                        onClick={copyGcashNumber}
+                      >
+                        {copied ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              <p className="payment-instruction-clean">
+                Scan the QR code or send the exact
+                down payment amount to the GCash account
+                above.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="payment-details-header">
+                <div>
+                  <span>Pay via</span>
+                  <h3>QR PH</h3>
+                </div>
+
+                <strong>
+                  {peso(qrphTotal)}
+                </strong>
+              </div>
+
+              <div className="payment-qr-clean">
+                {qrph.qrph_qr ? (
+                  <img
+                    src={qrph.qrph_qr}
+                    alt="QR PH QR Code"
+                  />
+                ) : (
+                  <div>
+                    QR PH QR has not been configured yet.
+                  </div>
+                )}
+              </div>
+
+              <div className="payment-breakdown-clean">
+
+                <div>
+                  <span>Booking payment</span>
+                  <strong>
+                    {peso(downPayment)}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Processing fee</span>
+                  <strong>
+                    {peso(qrphFee)}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Total to pay</span>
+                  <strong>
+                    {peso(qrphTotal)}
+                  </strong>
+                </div>
+
+              </div>
+
+              <p className="payment-instruction-clean">
+                Scan the QR code using your preferred
+                banking or e-wallet app.
+              </p>
+            </>
+          )}
+
         </div>
-      </div>
+      </section>
 
-      {/* PROOF */}
-      <div
-        style={{
-          marginTop: 25,
-        }}
-      >
-        <div className="kicker">
+      {/* =====================================================
+          4 — PROOF OF PAYMENT
+          ===================================================== */}
+
+      <section className="payment-section-clean">
+
+        <div className="payment-section-label-clean">
           Proof of payment
         </div>
 
-        <h2
-          className="serif"
-          style={{
-            margin:
-              "4px 0 8px",
-            fontSize: 28,
-          }}
-        >
-          Upload your payment screenshot
+        <h2 className="payment-heading-clean">
+          Upload your Proof of Payment
         </h2>
 
-        <p
-          className="muted"
-          style={{
-            marginTop: 0,
-          }}
-        >
-          Please upload a clear screenshot
-          showing that your payment was
-          completed.
+        <p className="payment-description-clean">
+          Upload a clear screenshot showing your
+          successful payment.
         </p>
 
-        <div className="field">
-          <label>
-            Payment screenshot
-          </label>
-
+        <label
+          className={`payment-upload-clean ${
+            file
+              ? "payment-upload-selected"
+              : ""
+          }`}
+        >
           <input
             type="file"
-            accept=".jpg,.jpeg,.png,.heic,image/jpeg,image/png,image/heic,image/heif"
-            onChange={(event) =>
-              handleFileChange(
-                event.target.files?.[0] ||
-                  null
-              )
-            }
+            accept=".jpg,.jpeg,.png,.heic,.heif,image/jpeg,image/png,image/heic,image/heif"
+            onChange={handleFileChange}
           />
 
-          {file && (
-            <p
-              className="muted"
-              style={{
-                marginTop: 8,
-                fontSize: 12,
-              }}
-            >
-              Selected:
-              {" "}
-              <strong>
-                {file.name}
-              </strong>
-            </p>
-          )}
-        </div>
-      </div>
+          <div className="payment-upload-icon-clean">
+            {file ? "✓" : "↑"}
+          </div>
 
-      {error && (
-        <div
-          className="notice"
-          style={{
-            marginTop: 15,
-          }}
-        >
-          {error}
-        </div>
-      )}
+          <strong>
+            {file
+              ? "Payment proof selected"
+              : "Upload payment proof"}
+          </strong>
 
-      {message && (
-        <div
-          className="notice"
-          style={{
-            marginTop: 15,
-          }}
-        >
-          {message}
-        </div>
-      )}
+          <span>
+            {file
+              ? file.name
+              : "JPG, PNG, or HEIC · maximum 8MB"}
+          </span>
+        </label>
 
-      {/* SUBMIT */}
+        {error && (
+          <div
+            className="payment-error-clean"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
+
+      </section>
+
+      {/* =====================================================
+          SUBMIT
+          ===================================================== */}
+
       <button
         type="button"
-        className="btn"
-        disabled={!file || busy}
-        onClick={submit}
-        style={{
-          width: "100%",
-          marginTop: 20,
-        }}
+        className="payment-submit-clean"
+        disabled={busy || !file}
+        onClick={submitPayment}
       >
         {busy
-          ? "Submitting…"
-          : "SUBMIT PAYMENT PROOF"}
+          ? "Submitting..."
+          : "Submit Payment Proof"}
       </button>
+
+      <p className="payment-submit-note-clean">
+        Your payment proof will be reviewed by TheClawLab MNL before your booking is confirmed.
+      </p>
+
     </div>
   );
 }

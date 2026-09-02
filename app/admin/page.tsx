@@ -1,38 +1,42 @@
-export const dynamic = "force-dynamic";
+export const dynamic =
+  "force-dynamic";
 
 import Link from "next/link";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+
+import {
+  supabaseAdmin,
+} from "@/lib/supabase-admin";
 
 const dashboardCards = [
   {
     label: "Pending requests",
     note: "Review new booking requests",
-    status: "pending",
     href: "/admin/bookings?status=pending",
   },
   {
     label: "Approved",
     note: "Bookings waiting for payment",
-    status: "approved",
     href: "/admin/bookings?status=approved",
   },
   {
     label: "Payments to verify",
     note: "Review uploaded payment proof",
-    status: "payment_submitted",
     href: "/admin/payments",
   },
   {
     label: "Confirmed",
     note: "Upcoming confirmed appointments",
-    status: "confirmed",
     href: "/admin/bookings?status=confirmed",
   },
   {
     label: "Completed",
     note: "Finished appointments",
-    status: "completed",
     href: "/admin/bookings?status=completed",
+  },
+  {
+    label: "Cancelled",
+    note: "Cancelled booking requests",
+    href: "/admin/bookings?status=cancelled",
   },
 ] as const;
 
@@ -40,118 +44,762 @@ const quickLinks = [
   {
     eyebrow: "Schedule",
     title: "Calendar",
-    description: "Manage working hours, open slots, blocked time, and appointments.",
+    description:
+      "Manage working hours, open slots, blocked time, and appointments.",
     href: "/admin/calendar",
   },
   {
     eyebrow: "Catalogue",
     title: "Services",
-    description: "Update services, variations, prices, and durations.",
+    description:
+      "Update services, variations, prices, and durations.",
     href: "/admin/services",
   },
   {
     eyebrow: "Offers",
     title: "Promos",
-    description: "Create or update your current promotional offers.",
+    description:
+      "Create or update your current promotional offers.",
     href: "/admin/promos",
   },
   {
     eyebrow: "Payments",
     title: "Payment settings",
-    description: "Manage GCash, QR PH, processing fees, and QR images.",
+    description:
+      "Manage GCash, QR PH, processing fees, and QR images.",
     href: "/admin/settings",
   },
   {
     eyebrow: "Reviews",
     title: "Review queue",
-    description: "Moderate client reviews before they appear publicly.",
+    description:
+      "Moderate client reviews before they appear publicly.",
     href: "/admin/reviews",
   },
 ] as const;
 
+function formatMoney(
+  value: number
+) {
+  return `₱${value.toLocaleString(
+    "en-PH",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  )}`;
+}
+
 export default async function Admin() {
-  const db = supabaseAdmin();
+  const db =
+    supabaseAdmin();
 
-  const counts = await Promise.all(
-    dashboardCards.map((item) =>
-      db
-        .from("bookings")
-        .select("id", { count: "exact", head: true })
-        .eq("status", item.status)
-    )
-  );
+  const countResults =
+    await Promise.all(
+      dashboardCards.map(
+        async (item) => {
+          const status =
+            item.href.includes(
+              "status="
+            )
+              ? item.href.split(
+                  "status="
+                )[1]
+              : null;
 
-  const { count: reviewCount } = await db
-    .from("reviews")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "pending");
+          if (!status) {
+            return 0;
+          }
+
+          const {
+            count,
+            error,
+          } =
+            await db
+              .from("bookings")
+              .select(
+                "id",
+                {
+                  count:
+                    "exact",
+                  head: true,
+                }
+              )
+              .eq(
+                "status",
+                status
+              );
+
+          if (error) {
+            console.error(
+              "Dashboard count error:",
+              error
+            );
+
+            return 0;
+          }
+
+          return (
+            count || 0
+          );
+        }
+      )
+    );
+
+  /*
+   * Payments waiting for verification.
+   */
+  const {
+    count:
+      paymentVerificationCount,
+    error:
+      paymentVerificationError,
+  } =
+    await db
+      .from("payments")
+      .select(
+        "id",
+        {
+          count:
+            "exact",
+          head: true,
+        }
+      )
+      .eq(
+        "status",
+        "submitted"
+      );
+
+  if (
+    paymentVerificationError
+  ) {
+    console.error(
+      "Payment verification count error:",
+      paymentVerificationError
+    );
+  }
+
+  /*
+   * Total net income.
+   *
+   * Only verified payments count.
+   * net_amount is preferred.
+   * Older records fall back to amount.
+   *
+   * QR PH processing fees remain separate
+   * and are not deducted from booking balances.
+   */
+  const {
+    data:
+      verifiedPayments,
+    error:
+      verifiedPaymentsError,
+  } =
+    await db
+      .from("payments")
+      .select(
+        "amount,net_amount,processing_fee,status"
+      )
+      .eq(
+        "status",
+        "verified"
+      );
+
+  if (
+    verifiedPaymentsError
+  ) {
+    console.error(
+      "Net income query error:",
+      verifiedPaymentsError
+    );
+  }
+
+  const totalNetIncome =
+    (
+      verifiedPayments ||
+      []
+    ).reduce(
+      (
+        total: number,
+        payment: any
+      ) => {
+        const net =
+          Number(
+            payment.net_amount ??
+              payment.amount ??
+              0
+          );
+
+        return (
+          total +
+          Math.max(
+            0,
+            net
+          )
+        );
+      },
+      0
+    );
+
+  /*
+   * Pending reviews.
+   */
+  const {
+    count:
+      reviewCount,
+    error:
+      reviewCountError,
+  } =
+    await db
+      .from("reviews")
+      .select(
+        "id",
+        {
+          count:
+            "exact",
+          head: true,
+        }
+      )
+      .eq(
+        "status",
+        "pending"
+      );
+
+  if (
+    reviewCountError
+  ) {
+    console.error(
+      "Review count error:",
+      reviewCountError
+    );
+  }
+
+  /*
+   * Payments card uses its own count.
+   */
+  const cardCounts =
+    dashboardCards.map(
+      (
+        item,
+        index
+      ) => {
+        if (
+          item.label ===
+          "Payments to verify"
+        ) {
+          return (
+            paymentVerificationCount ||
+            0
+          );
+        }
+
+        return (
+          countResults[
+            index
+          ] || 0
+        );
+      }
+    );
 
   return (
     <div className="admin-page">
-      <section className="admin-welcome">
+      {/* WELCOME */}
+      <section
+        className="admin-welcome"
+        style={{
+          marginBottom:
+            34,
+        }}
+      >
         <div>
-          <div className="kicker">The Claw Lab MNL · Nailtech</div>
-          <h1 className="serif">Good day ♡</h1>
-          <p className="admin-lead">
-            Here’s your quick overview. Choose a section below to manage the studio.
+          <div className="kicker">
+            The Claw Lab MNL · Nailtech
+          </div>
+
+          <h1
+            className="serif"
+            style={{
+              margin:
+                "5px 0 7px",
+            }}
+          >
+            Good day ♡
+          </h1>
+
+          <p
+            className="admin-lead"
+            style={{
+              margin:
+                0,
+              maxWidth:
+                620,
+            }}
+          >
+            Here’s your quick overview.
+            Choose a section below to
+            manage the studio.
           </p>
         </div>
       </section>
 
+      {/* DASHBOARD */}
       <section>
-        <div className="admin-section-title-row">
+        <div
+          className="admin-section-title-row"
+          style={{
+            marginBottom:
+              16,
+          }}
+        >
           <div>
-            <div className="kicker">At a glance</div>
-            <h2 className="serif">Today’s dashboard</h2>
+            <div className="kicker">
+              At a glance
+            </div>
+
+            <h2
+              className="serif"
+              style={{
+                margin:
+                  "4px 0 0",
+              }}
+            >
+              Today’s dashboard
+            </h2>
           </div>
         </div>
 
-        <div className="admin-stat-grid admin-stat-grid-clean">
-          {dashboardCards.map((item, index) => (
-            <Link href={item.href} className="admin-stat-link" key={item.label}>
-              <article className="card admin-stat-card admin-stat-card-clean">
-                <div className="admin-stat-topline">
-                  <span>{item.label}</span>
-                  <span className="admin-card-chevron">→</span>
-                </div>
-                <div className="admin-stat-number">{counts[index]?.count ?? 0}</div>
-                <p>{item.note}</p>
-              </article>
-            </Link>
-          ))}
+        <div
+          className="admin-stat-grid"
+          style={{
+            display:
+              "grid",
+            gridTemplateColumns:
+              "repeat(2, minmax(0, 1fr))",
+            gap: 16,
+          }}
+        >
+          {dashboardCards.map(
+            (
+              item,
+              index
+            ) => (
+              <Link
+                key={
+                  item.label
+                }
+                href={
+                  item.href
+                }
+                style={{
+                  display:
+                    "block",
+                  textDecoration:
+                    "none",
+                  minWidth:
+                    0,
+                }}
+              >
+                <article
+                  className="card"
+                  style={{
+                    height:
+                      "100%",
+                    minHeight:
+                      145,
+                    padding:
+                      "18px 20px",
+                    display:
+                      "flex",
+                    flexDirection:
+                      "column",
+                    justifyContent:
+                      "space-between",
+                    boxSizing:
+                      "border-box",
+                  }}
+                >
+                  <div
+                    style={{
+                      display:
+                        "flex",
+                      alignItems:
+                        "center",
+                      justifyContent:
+                        "space-between",
+                      gap: 12,
+                    }}
+                  >
+                    <span
+                      className="muted"
+                      style={{
+                        fontSize:
+                          12,
+                      }}
+                    >
+                      {
+                        item.label
+                      }
+                    </span>
+
+                    <span
+                      style={{
+                        fontSize:
+                          16,
+                        lineHeight:
+                          1,
+                      }}
+                    >
+                      →
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop:
+                        10,
+                    }}
+                  >
+                    <div
+                      className="serif"
+                      style={{
+                        fontSize:
+                          34,
+                        lineHeight:
+                          1,
+                        marginBottom:
+                          7,
+                      }}
+                    >
+                      {
+                        cardCounts[
+                          index
+                        ]
+                      }
+                    </div>
+
+                    <p
+                      className="muted"
+                      style={{
+                        margin:
+                          0,
+                        fontSize:
+                          12,
+                        lineHeight:
+                          1.45,
+                      }}
+                    >
+                      {
+                        item.note
+                      }
+                    </p>
+                  </div>
+                </article>
+              </Link>
+            )
+          )}
+
+          {/* NET INCOME */}
+          <div
+            className="card"
+            style={{
+              minHeight:
+                145,
+              padding:
+                "18px 20px",
+              display:
+                "flex",
+              flexDirection:
+                "column",
+              justifyContent:
+                "space-between",
+              boxSizing:
+                "border-box",
+            }}
+          >
+            <div
+              style={{
+                display:
+                  "flex",
+                alignItems:
+                  "center",
+                justifyContent:
+                  "space-between",
+                gap: 12,
+              }}
+            >
+              <span
+                className="muted"
+                style={{
+                  fontSize:
+                    12,
+                }}
+              >
+                Total net income
+              </span>
+
+              <span
+                style={{
+                  fontSize:
+                    12,
+                }}
+              >
+                Verified
+              </span>
+            </div>
+
+            <div
+              style={{
+                marginTop:
+                  10,
+              }}
+            >
+              <div
+                className="serif"
+                style={{
+                  fontSize:
+                    30,
+                  lineHeight:
+                    1.1,
+                  marginBottom:
+                    7,
+                }}
+              >
+                {formatMoney(
+                  totalNetIncome
+                )}
+              </div>
+
+              <p
+                className="muted"
+                style={{
+                  margin:
+                    0,
+                  fontSize:
+                    12,
+                  lineHeight:
+                    1.45,
+                }}
+              >
+                Verified payments after
+                excluding separate QR PH
+                processing fees.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="admin-quick-section">
-        <div className="admin-section-title-row">
+      {/* STUDIO TOOLS */}
+      <section
+        style={{
+          marginTop:
+            38,
+        }}
+      >
+        <div
+          className="admin-section-title-row"
+          style={{
+            marginBottom:
+              16,
+          }}
+        >
           <div>
-            <div className="kicker">Manage</div>
-            <h2 className="serif">Studio tools</h2>
+            <div className="kicker">
+              Manage
+            </div>
+
+            <h2
+              className="serif"
+              style={{
+                margin:
+                  "4px 0 0",
+              }}
+            >
+              Studio tools
+            </h2>
           </div>
         </div>
 
-        <div className="admin-quick-grid">
-          {quickLinks.map((item) => (
-            <Link key={item.href} href={item.href} className="admin-quick-link">
-              <article className="card admin-quick-card">
-                <div className="kicker">{item.eyebrow}</div>
-                <h3 className="serif">{item.title}</h3>
-                <p>{item.description}</p>
-                <span className="admin-text-action">Open {item.title} →</span>
-              </article>
-            </Link>
-          ))}
+        <div
+          style={{
+            display:
+              "grid",
+            gridTemplateColumns:
+              "repeat(2, minmax(0, 1fr))",
+            gap: 16,
+          }}
+        >
+          {quickLinks.map(
+            (
+              item
+            ) => (
+              <Link
+                key={
+                  item.href
+                }
+                href={
+                  item.href
+                }
+                style={{
+                  display:
+                    "block",
+                  textDecoration:
+                    "none",
+                  minWidth:
+                    0,
+                }}
+              >
+                <article
+                  className="card"
+                  style={{
+                    minHeight:
+                      145,
+                    padding:
+                      "18px 20px",
+                    display:
+                      "flex",
+                    flexDirection:
+                      "column",
+                    boxSizing:
+                      "border-box",
+                  }}
+                >
+                  <div className="kicker">
+                    {
+                      item.eyebrow
+                    }
+                  </div>
+
+                  <h3
+                    className="serif"
+                    style={{
+                      margin:
+                        "5px 0 7px",
+                      fontSize:
+                        22,
+                    }}
+                  >
+                    {
+                      item.title
+                    }
+                  </h3>
+
+                  <p
+                    className="muted"
+                    style={{
+                      margin:
+                        "0 0 13px",
+                      fontSize:
+                        12,
+                      lineHeight:
+                        1.5,
+                    }}
+                  >
+                    {
+                      item.description
+                    }
+                  </p>
+
+                  <span
+                    style={{
+                      marginTop:
+                        "auto",
+                      fontSize:
+                        12,
+                      fontWeight:
+                        600,
+                    }}
+                  >
+                    Open{" "}
+                    {
+                      item.title
+                    }{" "}
+                    →
+                  </span>
+                </article>
+              </Link>
+            )
+          )}
         </div>
       </section>
 
-      <section className="admin-bottom-note">
-        <div className="card admin-help-card">
-          <div>
-            <div className="kicker">Reviews</div>
-            <h3 className="serif">{reviewCount ?? 0} review{(reviewCount ?? 0) === 1 ? "" : "s"} waiting</h3>
-            <p>Keep your public review section tidy by approving or hiding reviews here.</p>
+      {/* REVIEWS */}
+      <section
+        style={{
+          marginTop:
+            30,
+        }}
+      >
+        <div
+          className="card"
+          style={{
+            padding:
+              "18px 20px",
+            display:
+              "flex",
+            alignItems:
+              "center",
+            justifyContent:
+              "space-between",
+            gap: 18,
+            flexWrap:
+              "wrap",
+          }}
+        >
+          <div
+            style={{
+              minWidth:
+                0,
+            }}
+          >
+            <div className="kicker">
+              Reviews
+            </div>
+
+            <h3
+              className="serif"
+              style={{
+                margin:
+                  "4px 0 5px",
+                fontSize:
+                  22,
+              }}
+            >
+              {reviewCount ||
+                0}{" "}
+              review
+              {
+                (reviewCount ||
+                  0) ===
+                1
+                  ? ""
+                  : "s"
+              }{" "}
+              waiting
+            </h3>
+
+            <p
+              className="muted"
+              style={{
+                margin:
+                  0,
+                fontSize:
+                  12,
+                lineHeight:
+                  1.5,
+              }}
+            >
+              Approve or hide new reviews
+              before they appear publicly.
+            </p>
           </div>
-          <Link className="btn secondary small" href="/admin/reviews">Review queue →</Link>
+
+          <Link
+            className="btn secondary small"
+            href="/admin/reviews"
+          >
+            REVIEW QUEUE →
+          </Link>
         </div>
       </section>
     </div>

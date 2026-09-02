@@ -1,66 +1,74 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 const links = [
-  { label: "Dashboard", href: "/admin" },
-  { label: "Bookings", href: "/admin/bookings" },
-  { label: "Calendar", href: "/admin/calendar" },
-  { label: "Services", href: "/admin/services" },
-  { label: "Promos", href: "/admin/promos" },
-  { label: "Payments", href: "/admin/payments" },
-  { label: "Reviews", href: "/admin/reviews" },
-  { label: "Settings", href: "/admin/settings" },
-] as const;
-
-function isActive(pathname: string, href: string) {
-  if (href === "/admin") return pathname === "/admin";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
+  {
+    href: "/admin",
+    label: "Dashboard",
+    icon: "⌂",
+  },
+  {
+    href: "/admin/bookings",
+    label: "Bookings",
+    icon: "▣",
+  },
+  {
+    href: "/admin/payments",
+    label: "Payments",
+    icon: "₱",
+  },
+  {
+    href: "/admin/calendar",
+    label: "Availability",
+    icon: "◷",
+  },
+  {
+    href: "/admin/services",
+    label: "Services",
+    icon: "✦",
+  },
+  {
+    href: "/admin/promos",
+    label: "Promotions",
+    icon: "%",
+  },
+  {
+    href: "/admin/gallery",
+    label: "Gallery",
+    icon: "▧",
+  },
+];
 
 export default function AdminNav() {
   const pathname = usePathname();
-  const router = useRouter();
-
-  const activeLabel =
-    links.find((item) => isActive(pathname, item.href))?.label ??
-    "Dashboard";
 
   return (
     <nav className="admin-navigation" aria-label="Admin navigation">
-      <div className="admin-navigation-desktop">
-        {links.map((item) => {
-          const active = isActive(pathname, item.href);
+      <div className="admin-navigation-list">
+        {links.map((link) => {
+          const active =
+            link.href === "/admin"
+              ? pathname === "/admin"
+              : pathname.startsWith(link.href);
+
           return (
             <Link
-              key={item.href}
-              href={item.href}
-              className={`admin-navigation-link${active ? " active" : ""}`}
-              aria-current={active ? "page" : undefined}
+              key={link.href}
+              href={link.href}
+              className={`admin-navigation-link ${
+                active ? "active" : ""
+              }`}
             >
-              {item.label}
+              <span className="admin-navigation-icon">
+                {link.icon}
+              </span>
+
+              <span>{link.label}</span>
             </Link>
           );
         })}
-      </div>
-
-      <div className="admin-navigation-mobile">
-        <label htmlFor="admin-section">Section</label>
-        <select
-          id="admin-section"
-          value={activeLabel}
-          onChange={(event) => {
-            const next = links.find((item) => item.label === event.target.value);
-            if (next) router.push(next.href);
-          }}
-        >
-          {links.map((item) => (
-            <option key={item.href} value={item.label}>
-              {item.label}
-            </option>
-          ))}
-        </select>
       </div>
     </nav>
   );

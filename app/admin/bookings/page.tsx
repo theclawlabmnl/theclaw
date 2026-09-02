@@ -2,12 +2,11 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { formatDate, peso } from "@/lib/utils";
-import BookingActions from "@/components/BookingActions";
-import PaymentLinkActions from "@/components/PaymentLinkActions";
+import { formatDate } from "@/lib/utils";
+import CopyBookingId from "@/components/CopyBookingId";
 
 const STATUS_OPTIONS = [
-  ["", "All"],
+  ["", "All bookings"],
   ["pending", "Pending"],
   ["approved", "Approved"],
   ["payment_submitted", "Payment submitted"],
@@ -19,19 +18,62 @@ const STATUS_OPTIONS = [
 
 function statusLabel(status: string) {
   switch (status) {
-    case "pending": return "Pending";
-    case "approved": return "Approved · Payment Required";
-    case "payment_submitted": return "Payment Submitted";
-    case "confirmed": return "Confirmed";
-    case "completed": return "Completed";
-    case "cancelled": return "Cancelled";
-    case "rejected": return "Rejected";
-    default: return status;
+    case "pending":
+      return "Pending";
+    case "approved":
+      return "Approved";
+    case "payment_submitted":
+      return "Payment Submitted";
+    case "confirmed":
+      return "Confirmed";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+    case "rejected":
+      return "Rejected";
+    default:
+      return status;
   }
 }
 
-function isImage(path: string) {
-  return /\.(jpg|jpeg|png|webp|gif|heic|heif)$/i.test(path);
+function statusClass(status: string) {
+  switch (status) {
+    case "pending":
+      return "booking-status booking-status-pending";
+    case "approved":
+      return "booking-status booking-status-approved";
+    case "payment_submitted":
+      return "booking-status booking-status-payment";
+    case "confirmed":
+      return "booking-status booking-status-confirmed";
+    case "completed":
+      return "booking-status booking-status-completed";
+    case "cancelled":
+      return "booking-status booking-status-cancelled";
+    case "rejected":
+      return "booking-status booking-status-rejected";
+    default:
+      return "booking-status";
+  }
+}
+
+function formatTime12(time: string | null) {
+  if (!time) return "—";
+
+  const parts = time.split(":");
+
+  if (parts.length < 2) return time;
+
+  const hour = Number(parts[0]);
+  const minute = parts[1];
+
+  if (Number.isNaN(hour)) return time;
+
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+
+  return `${hour12}:${minute} ${suffix}`;
 }
 
 export default async function Bookings({
@@ -40,167 +82,226 @@ export default async function Bookings({
   searchParams: Promise<{ status?: string }>;
 }) {
   const params = await searchParams;
-  const filter = STATUS_OPTIONS.some(([value]) => value === (params.status || ""))
-    ? (params.status || "")
-    : "";
+
+  const requestedStatus = params.status || "";
+
+  const validStatus = STATUS_OPTIONS.some(
+    ([value]) => value === requestedStatus
+  );
+
+  const filter = validStatus ? requestedStatus : "";
 
   const db = supabaseAdmin();
+
   let query = db
     .from("bookings")
     .select(
-      "id,reference_code,access_token,customer_name,mobile_number,preferred_date,preferred_time,status,estimated_total,down_payment,created_at"
+      `
+        id,
+        reference_code,
+        customer_name,
+        mobile_number,
+        preferred_date,
+        preferred_time,
+        status,
+        created_at
+      `
     )
-    .order("created_at", { ascending: false })
+    .order("created_at", {
+      ascending: false,
+    })
     .limit(100);
 
-  if (filter) query = query.eq("status", filter);
-
-  const { data, error } = await query;
-  if (error) console.error("Admin bookings error:", error);
-
-  const bookings = data || [];
-  const bookingIds = bookings.map((item) => item.id);
-  const inspirationByBooking = new Map<string, Array<{ id: string; path: string; kind: string; signedUrl: string | null }>>();
-
-  if (bookingIds.length) {
-    const { data: files } = await db
-      .from("booking_files")
-      .select("id,booking_id,bucket,path,kind,created_at")
-      .in("booking_id", bookingIds)
-      .order("created_at", { ascending: true });
-
-    const imageFiles = (files || []).filter((file) => file.kind === "inspiration");
-    const paths = imageFiles.map((file) => file.path);
-    const signedByPath = new Map<string, string>();
-
-    if (paths.length) {
-      const { data: signed } = await db.storage
-        .from("nail-inspiration")
-        .createSignedUrls(paths, 60 * 60 * 6);
-
-      for (let i = 0; i < paths.length; i += 1) {
-        const url = signed?.[i]?.signedUrl;
-        if (url) signedByPath.set(paths[i], url);
-      }
-    }
-
-    for (const file of imageFiles) {
-      const entry = {
-        id: file.id,
-        path: file.path,
-        kind: file.kind,
-        signedUrl: signedByPath.get(file.path) || null,
-      };
-      const existing = inspirationByBooking.get(file.booking_id) || [];
-      existing.push(entry);
-      inspirationByBooking.set(file.booking_id, existing.slice(0, 3));
-    }
+  if (filter) {
+    query = query.eq("status", filter);
   }
 
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Admin bookings error:", error);
+  }
+
+  const bookings = data || [];
+
   return (
-    <div className="admin-page">
-      <div className="admin-page-head admin-page-head-row">
+    <div className="admin-page bookings-dashboard">
+      {/* HEADER */}
+      <header className="bookings-header">
         <div>
-          <div className="kicker">Operations</div>
-          <h1 className="serif">Bookings</h1>
-          <p className="muted admin-lead">
-            Review requests, view uploads, manage appointments, and recover customer links.
+          <div className="kicker">OPERATIONS</div>
+
+          <h1 className="serif bookings-title">
+            Bookings
+          </h1>
+
+          <p className="muted bookings-subtitle">
+            Manage customer appointments and booking requests.
           </p>
         </div>
-        <Link className="btn secondary" href="/admin/calendar">
-          Open calendar
+
+        <Link
+          href="/admin/calendar"
+          className="btn secondary bookings-calendar-btn"
+        >
+          View calendar
         </Link>
-      </div>
+      </header>
 
-      <div className="admin-filter-bar" aria-label="Booking status filters">
-        {STATUS_OPTIONS.map(([value, label]) => (
-          <Link
-            key={label}
-            href={value ? `/admin/bookings?status=${value}` : "/admin/bookings"}
-            className={`admin-filter ${filter === value ? "active" : ""}`}
+      {/* FILTER */}
+      <div className="bookings-toolbar">
+        <div className="bookings-filter-wrap">
+          <label
+            htmlFor="booking-status"
+            className="bookings-filter-label"
           >
-            {label}
-          </Link>
-        ))}
+            Show
+          </label>
+
+          <form method="get">
+            <select
+              id="booking-status"
+              name="status"
+              defaultValue={filter}
+              className="bookings-status-select"
+            >
+              {STATUS_OPTIONS.map(([value, label]) => (
+                <option
+                  key={value || "all"}
+                  value={value}
+                >
+                  {label}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="submit"
+              className="btn small secondary bookings-filter-button"
+            >
+              Apply
+            </button>
+          </form>
+        </div>
+
+        <div className="bookings-count">
+          {bookings.length}{" "}
+          {bookings.length === 1 ? "booking" : "bookings"}
+        </div>
       </div>
 
-      {bookings.length ? (
-        <div className="admin-booking-list">
-          {bookings.map((booking) => {
-            const remaining = Math.max(
-              0,
-              Number(booking.estimated_total || 0) - Number(booking.down_payment || 0)
-            );
-            const inspiration = inspirationByBooking.get(booking.id) || [];
+      {/* BOOKINGS */}
+      {bookings.length > 0 ? (
+        <div className="bookings-card-list">
+          {bookings.map((booking) => (
+            <article
+              key={booking.id}
+              className="booking-client-card"
+            >
+              <div className="booking-card-content">
+                {/* BOOKING ID */}
+                <div className="booking-field booking-field-id">
+                  <span className="booking-field-label">
+                    Booking ID
+                  </span>
 
-            return (
-              <article className="card admin-booking-card" key={booking.id}>
-                <div className="admin-booking-top">
-                  <div className="admin-booking-main">
-                    <div className="kicker">{booking.reference_code}</div>
-                    <h2 className="serif">{booking.customer_name}</h2>
-                    <div className="muted admin-booking-contact">
-                      {booking.mobile_number}
-                    </div>
-                  </div>
-                  <span className="status-pill">{statusLabel(booking.status)}</span>
-                </div>
+                  <div className="booking-id-row">
+                    <strong className="booking-reference">
+                      {booking.reference_code}
+                    </strong>
 
-                <div className="admin-booking-info-grid">
-                  <div>
-                    <div className="kicker">Appointment</div>
-                    <strong>{formatDate(booking.preferred_date)}</strong>
-                    <div>{booking.preferred_time}</div>
-                  </div>
-                  <div>
-                    <div className="kicker">Balance</div>
-                    <div>Total: <strong>{peso(booking.estimated_total || 0)}</strong></div>
-                    <div className="muted">
-                      Paid: {peso(booking.down_payment || 0)} · Remaining: {peso(remaining)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="kicker">Nail inspiration</div>
-                    {inspiration.length ? (
-                      <div className="admin-thumb-row">
-                        {inspiration.map((file) => (
-                          <a
-                            key={file.id}
-                            href={file.signedUrl || undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="admin-thumb-link"
-                            title="Open nail inspiration"
-                          >
-                            {file.signedUrl && isImage(file.path) ? (
-                              <img src={file.signedUrl} alt="Nail inspiration" className="admin-thumb" />
-                            ) : (
-                              <span className="admin-thumb-file">Open</span>
-                            )}
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="muted">None uploaded</span>
-                    )}
+                    <CopyBookingId
+                      value={booking.reference_code}
+                    />
                   </div>
                 </div>
 
-                <div className="admin-booking-actions">
-                  <Link className="btn small secondary" href={`/admin/bookings/${booking.id}`}>
-                    View details
+                {/* CLIENT */}
+                <div className="booking-field booking-field-client">
+                  <span className="booking-field-label">
+                    Client
+                  </span>
+
+                  <strong className="booking-client-name">
+                    {booking.customer_name}
+                  </strong>
+                </div>
+
+                {/* APPOINTMENT */}
+                <div className="booking-field booking-field-appointment">
+                  <span className="booking-field-label">
+                    Appointment
+                  </span>
+
+                  <strong>
+                    {formatDate(booking.preferred_date)}
+                  </strong>
+
+                  <span className="booking-time">
+                    {formatTime12(booking.preferred_time)}
+                  </span>
+                </div>
+
+                {/* PHONE */}
+                <div className="booking-field booking-field-phone">
+                  <span className="booking-field-label">
+                    Phone
+                  </span>
+
+                  <strong>
+                    {booking.mobile_number || "—"}
+                  </strong>
+                </div>
+
+                {/* STATUS */}
+                <div className="booking-field booking-field-status">
+                  <span className="booking-field-label">
+                    Status
+                  </span>
+
+                  <span className={statusClass(booking.status)}>
+                    {statusLabel(booking.status)}
+                  </span>
+                </div>
+
+                {/* ACTION */}
+                <div className="booking-card-action">
+                  <Link
+                    href={`/admin/bookings/${booking.id}`}
+                    className="booking-view-button"
+                  >
+                    View Details
+                    <span aria-hidden="true">
+                      →
+                    </span>
                   </Link>
-                  <BookingActions id={booking.id} status={booking.status} />
                 </div>
-
-                <PaymentLinkActions token={booking.access_token} status={booking.status} />
-              </article>
-            );
-          })}
+              </div>
+            </article>
+          ))}
         </div>
       ) : (
-        <div className="card empty">
-          No bookings found for this status.
+        <div className="bookings-empty">
+          <div className="bookings-empty-icon">
+            ♡
+          </div>
+
+          <h2 className="serif">
+            No bookings found
+          </h2>
+
+          <p className="muted">
+            There are no bookings under this status.
+          </p>
+
+          {filter && (
+            <Link
+              href="/admin/bookings"
+              className="btn secondary"
+            >
+              View all bookings
+            </Link>
+          )}
         </div>
       )}
     </div>

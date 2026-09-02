@@ -1,61 +1,100 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
-import { makeToken, sanitizeFilename } from "@/lib/utils";
-import { notifyPaymentProofSubmitted } from "@/lib/notifications";
+import {
+  NextRequest,
+  NextResponse,
+} from "next/server";
 
-const MAX_FILE_SIZE = 8 * 1024 * 1024;
+import {
+  supabaseAdmin,
+} from "@/lib/supabase-admin";
 
-const ALLOWED_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/heic",
-  "image/heif",
-]);
+import {
+  makeToken,
+  sanitizeFilename,
+} from "@/lib/utils";
+
+const MAX_FILE_SIZE =
+  8 * 1024 * 1024;
+
+const DEFAULT_DOWN_PAYMENT =
+  200;
+
+const DEFAULT_QRPH_FEE =
+  5;
+
+const ALLOWED_TYPES =
+  new Set([
+    "image/jpeg",
+    "image/png",
+    "image/heic",
+    "image/heif",
+  ]);
+
+type PaymentMethod =
+  | "gcash"
+  | "qrph";
 
 export async function POST(
   request: NextRequest
 ) {
   try {
-    const formData = await request.formData();
+    const formData =
+      await request.formData();
 
-    const token = String(
-      formData.get("token") || ""
-    ).trim();
+    const token =
+      String(
+        formData.get("token") || ""
+      ).trim();
 
-    const method = String(
-      formData.get("method") || ""
-    ).trim();
+    const methodValue =
+      String(
+        formData.get("method") || ""
+      )
+        .trim()
+        .toLowerCase();
 
-    const amount = Number(
-      formData.get("amount") || 0
-    );
+    const proof =
+      formData.get("proof");
 
-    const proof = formData.get("proof");
+    if (!token) {
+      return NextResponse.json(
+        {
+          error:
+            "Booking token is required.",
+        },
+        { status: 400 }
+      );
+    }
 
     if (
-      !token ||
-      !method ||
-      !(proof instanceof File)
+      methodValue !== "gcash" &&
+      methodValue !== "qrph"
     ) {
       return NextResponse.json(
         {
           error:
-            "Payment method, booking token, and proof are required.",
+            "Please select a valid payment method.",
         },
         { status: 400 }
       );
     }
 
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const method =
+      methodValue as PaymentMethod;
+
+    if (!(proof instanceof File)) {
       return NextResponse.json(
         {
-          error: "Invalid payment amount.",
+          error:
+            "Please upload your payment proof.",
         },
         { status: 400 }
       );
     }
 
-    if (proof.size <= 0 || proof.size > MAX_FILE_SIZE) {
+    if (
+      proof.size <= 0 ||
+      proof.size > MAX_FILE_SIZE
+    ) {
       return NextResponse.json(
         {
           error:
@@ -65,7 +104,11 @@ export async function POST(
       );
     }
 
-    if (!ALLOWED_TYPES.has(proof.type)) {
+    if (
+      !ALLOWED_TYPES.has(
+        proof.type
+      )
+    ) {
       return NextResponse.json(
         {
           error:
@@ -75,29 +118,59 @@ export async function POST(
       );
     }
 
-    const db = supabaseAdmin();
+    const db =
+      supabaseAdmin();
 
     const {
-      data: booking,
-      error: bookingError,
-    } = await db
-      .from("bookings")
-      .select(
-        "id,status,reference_code,customer_name,preferred_date,preferred_time,access_token"
-      )
-      .eq("access_token", token)
-      .single();
+  data: booking,
+  error: bookingError,
+} = await db
+  .from("bookings")
+  .select(
+    "id,status,reference_code,customer_name,preferred_date,preferred_time,estimated_total,down_payment"
+  )
+  .eq("access_token", token)
+  .single();
 
-    if (bookingError || !booking) {
+if (bookingError || !booking) {
+  return NextResponse.json(
+    {
+      error: "Booking could not be found.",
+    },
+    {
+      status: 404,
+    }
+  );
+}
+
+if (booking.status !== "approved") {
+  return NextResponse.json(
+    {
+      error: "Payment is not currently available for this booking.",
+    },
+    {
+      status: 400,
+    }
+  );
+}
+
+    if (
+      bookingError ||
+      !booking
+    ) {
       return NextResponse.json(
         {
-          error: "Booking not found.",
+          error:
+            "Booking not found.",
         },
         { status: 404 }
       );
     }
 
-    if (booking.status !== "approved") {
+    if (
+      booking.status !==
+      "approved"
+    ) {
       return NextResponse.json(
         {
           error:
@@ -107,118 +180,298 @@ export async function POST(
       );
     }
 
+    /*
+     * The actual booking payment is always
+     * the down payment amount.
+     */
+    const amount =
+      Number(
+        booking.down_payment ?? 0
+      ) > 0
+        ? Number(
+            booking.down_payment
+          )
+        : DEFAULT_DOWN_PAYMENT;
+
+    /*
+     * Read QR PH fee from admin settings.
+     * The client is never trusted for this amount.
+     */
+    let qrphFee =
+      DEFAULT_QRPH_FEE;
+
+    const {
+      data: feeSetting,
+    } =
+      await db
+        .from("site_settings")
+        .select("value")
+        .eq(
+          "key",
+          "qrph_fee"
+        )
+        .maybeSingle();
+
+    if (
+      feeSetting?.value !==
+      null &&
+      feeSetting?.value !==
+      undefined
+    ) {
+      const configuredFee =
+        Number(
+          feeSetting.value
+        );
+
+      if (
+        Number.isFinite(
+          configuredFee
+        ) &&
+        configuredFee >= 0
+      ) {
+        qrphFee =
+          configuredFee;
+      }
+    }
+
+    const processingFee =
+      method === "qrph"
+        ? qrphFee
+        : 0;
+
+    const grossAmount =
+      amount +
+      processingFee;
+
+    const netAmount =
+      amount;
+
+    /*
+     * Prevent accidental duplicate
+     * submissions while the booking is
+     * awaiting review.
+     */
+    const {
+      data: existingPayment,
+    } =
+      await db
+        .from("payments")
+        .select(
+          "id,status"
+        )
+        .eq(
+          "booking_id",
+          booking.id
+        )
+        .eq(
+          "status",
+          "submitted"
+        )
+        .limit(1)
+        .maybeSingle();
+
+    if (existingPayment) {
+      return NextResponse.json(
+        {
+          error:
+            "A payment proof has already been submitted for this booking and is awaiting review.",
+        },
+        { status: 409 }
+      );
+    }
+
     const path =
-      `${booking.id}/${makeToken(12)}-${sanitizeFilename(
+      `${booking.id}/${makeToken(
+        12
+      )}-${sanitizeFilename(
         proof.name
       )}`;
 
-    const upload = await db.storage
-      .from("payment-proofs")
-      .upload(
-        path,
-        await proof.arrayBuffer(),
-        {
-          contentType: proof.type,
-          upsert: false,
-        }
-      );
+    /*
+     * Upload proof first.
+     */
+    const upload =
+      await db.storage
+        .from("payment-proofs")
+        .upload(
+          path,
+          await proof.arrayBuffer(),
+          {
+            contentType:
+              proof.type,
+            upsert: false,
+          }
+        );
 
     if (upload.error) {
       throw upload.error;
     }
 
+    /*
+     * Create payment record.
+     */
     const {
       data: payment,
       error: paymentError,
-    } = await db
-      .from("payments")
-      .insert({
-        booking_id: booking.id,
-        method,
-        amount,
-        status: "submitted",
-      })
-      .select("id,booking_id,method,amount,status,created_at")
-      .single();
+    } =
+      await db
+        .from("payments")
+        .insert({
+          booking_id:
+            booking.id,
 
-    if (paymentError || !payment) {
-      // Remove the uploaded file if the payment record could not be created.
+          method,
+
+          amount,
+
+          gross_amount:
+            grossAmount,
+
+          processing_fee:
+            processingFee,
+
+          net_amount:
+            netAmount,
+
+          payment_type: "booking_payment",
+          
+          status:
+            "submitted",
+
+          created_at:
+            new Date().toISOString(),
+        })
+        .select(
+          "id"
+        )
+        .single();
+
+    if (
+      paymentError ||
+      !payment
+    ) {
       await db.storage
         .from("payment-proofs")
-        .remove([path])
-        .catch(() => undefined);
+        .remove([
+          path,
+        ])
+        .catch(
+          () => undefined
+        );
 
       throw (
         paymentError ||
-        new Error("Unable to create payment record.")
+        new Error(
+          "Unable to create payment record."
+        )
       );
     }
 
+    /*
+     * Link the uploaded proof
+     * to the booking.
+     */
     const {
       error: proofError,
-    } = await db
-      .from("payment_proofs")
-      .insert({
-        booking_id: booking.id,
-        bucket: "payment-proofs",
-        path,
-      });
+    } =
+      await db
+        .from(
+          "payment_proofs"
+        )
+        .insert({
+          booking_id:
+            booking.id,
+
+          bucket:
+            "payment-proofs",
+
+          path,
+        });
 
     if (proofError) {
-      // Roll back what we can so the booking does not look paid
-      // without a corresponding proof record.
       await db
         .from("payments")
         .delete()
-        .eq("id", payment.id);
+        .eq(
+          "id",
+          payment.id
+        );
 
       await db.storage
         .from("payment-proofs")
-        .remove([path])
-        .catch(() => undefined);
+        .remove([
+          path,
+        ])
+        .catch(
+          () => undefined
+        );
 
       throw proofError;
     }
 
+    /*
+     * Move booking into payment review.
+     */
     const {
-      error: bookingUpdateError,
-    } = await db
-      .from("bookings")
-      .update({
-        status: "payment_submitted",
-      })
-      .eq("id", booking.id)
-      .eq("status", "approved");
+      error:
+        bookingUpdateError,
+    } =
+      await db
+        .from("bookings")
+        .update({
+          status:
+            "payment_submitted",
+        })
+        .eq(
+          "id",
+          booking.id
+        )
+        .eq(
+          "status",
+          "approved"
+        );
 
-    if (bookingUpdateError) {
+    if (
+      bookingUpdateError
+    ) {
+      await db
+        .from(
+          "payment_proofs"
+        )
+        .delete()
+        .eq(
+          "booking_id",
+          booking.id
+        )
+        .eq(
+          "path",
+          path
+        );
+
+      await db
+        .from("payments")
+        .delete()
+        .eq(
+          "id",
+          payment.id
+        );
+
+      await db.storage
+        .from("payment-proofs")
+        .remove([
+          path,
+        ])
+        .catch(
+          () => undefined
+        );
+
       throw bookingUpdateError;
-    }
-
-    // Email notification is intentionally non-blocking.
-    // A mail problem must not make a successful payment-proof upload fail.
-    try {
-      await notifyPaymentProofSubmitted({
-        booking: {
-          id: booking.id,
-          reference_code: booking.reference_code,
-          customer_name: booking.customer_name,
-          preferred_date: booking.preferred_date,
-          preferred_time: booking.preferred_time,
-        },
-        method,
-        amount,
-      });
-    } catch (notificationError) {
-      console.error(
-        "Payment proof notification failed:",
-        notificationError
-      );
     }
 
     return NextResponse.json({
       ok: true,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(
       "Payment proof error:",
       error
@@ -227,8 +480,9 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          error?.message ||
-          "Unable to upload proof.",
+          error instanceof Error
+            ? error.message
+            : "Unable to submit payment proof.",
       },
       { status: 500 }
     );
