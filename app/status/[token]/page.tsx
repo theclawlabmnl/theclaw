@@ -2,9 +2,7 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 
-import {
-  supabaseAdmin,
-} from "@/lib/supabase-admin";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 import StatusAutoRefresh from "@/components/StatusAutoRefresh";
 
@@ -14,10 +12,7 @@ function getAppointmentDateTime(
   dateValue: string | null | undefined,
   timeValue: string | null | undefined
 ): Date | null {
-  if (
-    !dateValue ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(dateValue)
-  ) {
+  if (!dateValue || !/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) {
     return null;
   }
 
@@ -27,9 +22,7 @@ function getAppointmentDateTime(
     return null;
   }
 
-  const date = new Date(
-    `${dateValue}T${time}:00+08:00`
-  );
+  const date = new Date(`${dateValue}T${time}:00+08:00`);
 
   if (Number.isNaN(date.getTime())) {
     return null;
@@ -53,11 +46,7 @@ function hasActiveStatusAccess(
 
   const expiry =
     appointment.getTime() +
-    STATUS_WINDOW_DAYS *
-      24 *
-      60 *
-      60 *
-      1000;
+    STATUS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
   return Date.now() <= expiry;
 }
@@ -105,7 +94,7 @@ function getStatusContent(status: string) {
         label: "Completed",
         title: "Your appointment has been completed. ♡",
         description:
-          "Thank you for visiting The Claw Lab MNL.",
+          "Thank you for visiting The Claw Lab MNL. We would love to hear about your experience.",
         tone: "completed",
       };
 
@@ -173,6 +162,7 @@ export default async function Status({
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
+
             <div className="status-brand">
               The Claw Lab MNL
             </div>
@@ -197,6 +187,26 @@ export default async function Status({
             >
               Check another booking
             </Link>
+
+            <div
+              style={{
+                marginTop: "10px",
+                textAlign: "center",
+              }}
+            >
+              <Link
+                href="/"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 400,
+                  color: "#555",
+                  textDecoration: "none",
+                }}
+              >
+                Back to TheClawLabMNL Homepage
+              </Link>
+            </div>
+
           </div>
         </div>
       </main>
@@ -216,6 +226,7 @@ export default async function Status({
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
+
             <div className="status-brand">
               The Claw Lab MNL
             </div>
@@ -244,6 +255,26 @@ export default async function Status({
             <p className="status-help">
               Need help? Message us.
             </p>
+
+            <div
+              style={{
+                marginTop: "10px",
+                textAlign: "center",
+              }}
+            >
+              <Link
+                href="/"
+                style={{
+                  fontSize: "11px",
+                  fontWeight: 400,
+                  color: "#555",
+                  textDecoration: "none",
+                }}
+              >
+                Back to TheClawLabMNL Homepage
+              </Link>
+            </div>
+
           </div>
         </div>
       </main>
@@ -254,9 +285,15 @@ export default async function Status({
 
   const content = getStatusContent(status);
 
+  /*
+   * VIEW CONFIRMATION IS ONLY AVAILABLE
+   * FOR CONFIRMED BOOKINGS.
+   *
+   * COMPLETED BOOKINGS DO NOT SHOW
+   * VIEW CONFIRMATION.
+   */
   const canViewConfirmation =
-    status === "confirmed" ||
-    status === "completed";
+    status === "confirmed";
 
   const appointmentText =
     booking.preferred_date || "—";
@@ -284,13 +321,9 @@ export default async function Status({
 
           {/* HEADER */}
           <div className="status-header">
-
-        
-
             <h1>
               Booking Status
             </h1>
-
           </div>
 
           {/* STATUS */}
@@ -361,15 +394,64 @@ export default async function Status({
           {/* ACTION */}
           <div className="status-action">
 
+            {/* APPROVED */}
             {status === "approved" && (
-              <Link
-                href={`/payment/${token}`}
-                className="status-primary-button"
-              >
-                Proceed to Payment
-              </Link>
+              <>
+                <section
+                  style={{
+                    marginBottom: "12px",
+                    padding: "9px 12px",
+                    borderRadius: "7px",
+                    border:
+                      "1px solid rgba(190, 50, 50, 0.35)",
+                    background:
+                      "rgba(190, 50, 50, 0.07)",
+                    color: "#000",
+                  }}
+                >
+                  <strong
+                    style={{
+                      display: "block",
+                      marginBottom: "2px",
+                      fontSize: "12px",
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    ⏰ 3-Hour Payment Deadline
+                  </strong>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      lineHeight: 1.4,
+                      fontSize: "11px",
+                    }}
+                  >
+                    Your appointment is reserved for{" "}
+                    <strong>
+                      3 hours after approval
+                    </strong>
+                    . Please submit your payment
+                    and payment proof within this time.
+                    If payment is not submitted within
+                    3 hours, your booking will be{" "}
+                    <strong>
+                      automatically cancelled
+                    </strong>
+                    .
+                  </p>
+                </section>
+
+                <Link
+                  href={`/payment/${token}`}
+                  className="status-primary-button"
+                >
+                  Proceed to Payment
+                </Link>
+              </>
             )}
 
+            {/* CONFIRMED ONLY */}
             {canViewConfirmation && (
               <Link
                 href={`/confirmed/${token}`}
@@ -379,6 +461,7 @@ export default async function Status({
               </Link>
             )}
 
+            {/* PAYMENT SUBMITTED */}
             {status === "payment_submitted" && (
               <div className="status-review-box">
                 <strong>
@@ -391,6 +474,75 @@ export default async function Status({
                   been verified.
                 </p>
               </div>
+            )}
+
+            {/* COMPLETED */}
+            {status === "completed" && (
+              <>
+                {/* REVIEW REQUEST */}
+                <section
+                  style={{
+                    marginTop: "4px",
+                    marginBottom: "12px",
+                    padding: "12px 14px",
+                    borderRadius: "8px",
+                    border:
+                      "1px solid rgba(190, 120, 135, 0.28)",
+                    background:
+                      "rgba(243, 214, 220, 0.35)",
+                    color: "#000",
+                    textAlign: "center",
+                  }}
+                >
+                  <strong
+                    style={{
+                      display: "block",
+                      marginBottom: "4px",
+                      fontSize: "13px",
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    Loved your experience? ♡
+                  </strong>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "11px",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    We would love to hear what you
+                    thought about your appointment.
+                    Your feedback helps The Claw Lab MNL
+                    and future clients.
+                  </p>
+                </section>
+
+                {/* LEAVE A REVIEW */}
+                <Link
+                  href={`/review/${booking.access_token}?booking_id=${encodeURIComponent(
+                    booking.id
+                  )}`}
+                  className="status-primary-button"
+                >
+                  Leave a Review ♡
+                </Link>
+
+                {/* BOOK AGAIN */}
+                <Link
+                  href="/book"
+                  className="status-primary-button"
+                  style={{
+                    marginTop: "8px",
+                    background: "#f3d6dc",
+                    color: "#000",
+                    borderColor: "#f3d6dc",
+                  }}
+                >
+                  Book Again
+                </Link>
+              </>
             )}
 
           </div>
@@ -429,6 +581,21 @@ export default async function Status({
 
             <Link href="/status">
               Check another booking
+            </Link>
+
+            <Link
+              href="/"
+              style={{
+                display: "block",
+                marginTop: "5px",
+                fontSize: "11px",
+                lineHeight: 1.4,
+                fontWeight: 400,
+                color: "#555",
+                textDecoration: "none",
+              }}
+            >
+              Back to TheClawLabMNL Homepage
             </Link>
 
           </div>

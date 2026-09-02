@@ -15,6 +15,7 @@ type BookingRow = {
   reference_code: string | null;
   customer_name: string | null;
   mobile_number: string | null;
+  email: string | null;
   preferred_date: string | null;
   preferred_time: string | null;
   status: string | null;
@@ -144,6 +145,66 @@ function isUuid(
   );
 }
 
+async function ensureAccessToken(
+  db: ReturnType<typeof supabaseAdmin>,
+  booking: BookingRow
+): Promise<BookingRow | null> {
+  if (
+    booking.access_token
+  ) {
+    return booking;
+  }
+
+  const token =
+    crypto.randomUUID().replace(
+      /-/g,
+      ""
+    );
+
+  const {
+    data: updatedBooking,
+    error: tokenError,
+  } = await db
+    .from("bookings")
+    .update({
+      access_token:
+        token,
+    })
+    .eq(
+      "id",
+      booking.id
+    )
+    .select(
+      `
+      id,
+      access_token,
+      reference_code,
+      customer_name,
+      mobile_number,
+      email,
+      preferred_date,
+      preferred_time,
+      status,
+      created_at
+      `
+    )
+    .single();
+
+  if (
+    tokenError ||
+    !updatedBooking
+  ) {
+    console.error(
+      "Booking access token creation error:",
+      tokenError
+    );
+
+    return null;
+  }
+
+  return updatedBooking as BookingRow;
+}
+
 export async function POST(
   request: NextRequest
 ) {
@@ -161,17 +222,13 @@ export async function POST(
           ""
       ).trim();
 
-    const customerName =
+    const email =
       String(
-        body.customer_name ||
+        body.email ||
           ""
-      ).trim();
-
-    const mobileNumber =
-      String(
-        body.mobile_number ||
-          ""
-      ).trim();
+      )
+        .trim()
+        .toLowerCase();
 
     const db =
       supabaseAdmin();
@@ -220,6 +277,7 @@ export async function POST(
               reference_code,
               customer_name,
               mobile_number,
+              email,
               preferred_date,
               preferred_time,
               status,
@@ -260,9 +318,6 @@ export async function POST(
        * -------------------------------------------------------
        * SECOND: REFERENCE CODE
        * -------------------------------------------------------
-       *
-       * This also handles non-UUID booking IDs/reference
-       * codes.
        */
 
       if (
@@ -281,6 +336,7 @@ export async function POST(
               reference_code,
               customer_name,
               mobile_number,
+              email,
               preferred_date,
               preferred_time,
               status,
@@ -341,91 +397,34 @@ export async function POST(
        * -------------------------------------------------------
        * ACCESS TOKEN
        * -------------------------------------------------------
-       *
-       * The booking exists.
-       *
-       * If it does not have an access token yet, create one
-       * so the customer can still access the status page.
        */
+
+      const processedBooking =
+        await ensureAccessToken(
+          db,
+          booking
+        );
 
       if (
-        !booking.access_token
+        !processedBooking
       ) {
-        const token =
-          crypto.randomUUID().replace(
-            /-/g,
-            ""
-          );
-
-        const {
-          data:
-            updatedBooking,
-          error:
-            tokenError,
-        } =
-          await db
-            .from("bookings")
-            .update({
-              access_token:
-                token,
-            })
-            .eq(
-              "id",
-              booking.id
-            )
-            .select(
-              `
-              id,
-              access_token,
-              reference_code,
-              customer_name,
-              mobile_number,
-              preferred_date,
-              preferred_time,
-              status,
-              created_at
-              `
-            )
-            .single();
-
-        if (
-          tokenError ||
-          !updatedBooking
-        ) {
-          console.error(
-            "Booking access token creation error:",
-            tokenError
-          );
-
-          return NextResponse.json(
-            {
-              error:
-                "We found your booking, but we couldn't open its status page.",
-            },
-            {
-              status: 500,
-            }
-          );
-        }
-
-        booking =
-          updatedBooking as BookingRow;
+        return NextResponse.json(
+          {
+            error:
+              "We found your booking, but we couldn't open its status page.",
+          },
+          {
+            status: 500,
+          }
+        );
       }
-
-      /*
-       * -------------------------------------------------------
-       * RETURN BOOKING
-       * -------------------------------------------------------
-       *
-       * Approved bookings are intentionally allowed here.
-       */
 
       return NextResponse.json({
         ok: true,
 
         bookings: [
           publicBooking(
-            booking
+            processedBooking
           ),
         ],
       });
@@ -433,18 +432,18 @@ export async function POST(
 
     /*
      * =========================================================
-     * NAME + PHONE
+     * EMAIL ADDRESS
      * =========================================================
+     *
+     * Search using the exact email address saved with the
+     * booking.
      */
 
-    if (
-      !customerName ||
-      !mobileNumber
-    ) {
+    if (!email) {
       return NextResponse.json(
         {
           error:
-            "Please enter either your booking ID, or your exact full name and phone number.",
+            "Please enter either your booking ID or the email address used for your booking.",
         },
         {
           status: 400,
@@ -465,19 +464,16 @@ export async function POST(
           reference_code,
           customer_name,
           mobile_number,
+          email,
           preferred_date,
           preferred_time,
           status,
           created_at
           `
         )
-        .eq(
-          "customer_name",
-          customerName
-        )
-        .eq(
-          "mobile_number",
-          mobileNumber
+        .ilike(
+          "email",
+          email
         )
         .order(
           "preferred_date",
@@ -502,7 +498,7 @@ export async function POST(
       error
     ) {
       console.error(
-        "Name/phone status lookup error:",
+        "Email status lookup error:",
         error
       );
 
@@ -531,64 +527,11 @@ export async function POST(
         ).map(
           async (
             booking: BookingRow
-          ) => {
-            if (
-              booking.access_token
-            ) {
-              return booking;
-            }
-
-            const token =
-              crypto.randomUUID().replace(
-                /-/g,
-                ""
-              );
-
-            const {
-              data:
-                updatedBooking,
-              error:
-                tokenError,
-            } =
-              await db
-                .from("bookings")
-                .update({
-                  access_token:
-                    token,
-                })
-                .eq(
-                  "id",
-                  booking.id
-                )
-                .select(
-                  `
-                  id,
-                  access_token,
-                  reference_code,
-                  customer_name,
-                  mobile_number,
-                  preferred_date,
-                  preferred_time,
-                  status,
-                  created_at
-                  `
-                )
-                .single();
-
-            if (
-              tokenError ||
-              !updatedBooking
-            ) {
-              console.error(
-                "Booking token creation error:",
-                tokenError
-              );
-
-              return null;
-            }
-
-            return updatedBooking as BookingRow;
-          }
+          ) =>
+            ensureAccessToken(
+              db,
+              booking
+            )
         )
       );
 
@@ -613,7 +556,7 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "We couldn't find any bookings matching that exact name and phone number.",
+            "We couldn't find any bookings matching that email address.",
         },
         {
           status: 404,

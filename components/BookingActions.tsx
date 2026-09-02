@@ -11,62 +11,89 @@ type BookingStatus =
   | "cancelled"
   | "rejected";
 
-type Props = {
-  id: string;
-  status: BookingStatus;
+const statusLabels: Record<BookingStatus, string> = {
+  pending: "Pending",
+  approved: "Approved · Payment Required",
+  payment_submitted: "Payment Submitted",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  rejected: "Rejected",
 };
 
 const cancellationReasons = [
-  "Cancelled by client",
-  "No-show",
-  "Cancelled by Nailtech",
-  "Other",
-] as const;
+  {
+    value: "cancelled_by_client",
+    label: "Cancelled by client",
+  },
+  {
+    value: "no_show",
+    label: "No-show",
+  },
+  {
+    value: "cancelled_by_nailtech",
+    label: "Cancelled by nail tech",
+  },
+  {
+    value: "other",
+    label: "Other",
+  },
+];
 
-const resetStatuses = [
-  {
-    value: "pending",
-    label: "Pending",
-  },
-  {
-    value: "approved",
-    label: "Approved — Payment Required",
-  },
-  {
-    value: "payment_submitted",
-    label: "Payment Submitted",
-  },
-  {
-    value: "confirmed",
-    label: "Confirmed",
-  },
-] as const;
+const resetStatuses: BookingStatus[] = [
+  "pending",
+  "approved",
+  "payment_submitted",
+  "confirmed",
+];
+
+const adminOverrideStatuses: BookingStatus[] = [
+  "pending",
+  "approved",
+  "payment_submitted",
+  "confirmed",
+  "completed",
+  "cancelled",
+  "rejected",
+];
 
 export default function BookingActions({
   id,
   status,
-}: Props) {
+}: {
+  id: string;
+  status: BookingStatus;
+}) {
+  const [currentStatus, setCurrentStatus] =
+    useState<BookingStatus>(status);
+
   const [loading, setLoading] = useState(false);
-
-  const [error, setError] = useState("");
-
-  const [cancellationOpen, setCancellationOpen] =
+  const [overrideLoading, setOverrideLoading] =
     useState(false);
 
   const [cancellationReason, setCancellationReason] =
+    useState("cancelled_by_client");
+
+  const [cancellationNote, setCancellationNote] =
     useState("");
 
-  const [otherReason, setOtherReason] = useState("");
+  const [overrideOpen, setOverrideOpen] =
+    useState(false);
 
-  const [resetOpen, setResetOpen] = useState(false);
+  const [overrideStatus, setOverrideStatus] =
+    useState<BookingStatus>(status);
 
-  const [resetStatus, setResetStatus] =
-    useState<BookingStatus>("pending");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
-  async function request(
-    payload: Record<string, unknown>
+  async function updateStatus(
+    nextStatus: BookingStatus,
+    extra: Record<string, unknown> = {}
   ) {
+    if (loading) return;
+
     setLoading(true);
+    setMessage("");
     setError("");
 
     try {
@@ -79,347 +106,484 @@ export default function BookingActions({
           },
           body: JSON.stringify({
             id,
-            ...payload,
+            action: "status",
+            status: nextStatus,
+            ...extra,
           }),
         }
       );
 
-      const data = await response
-        .json()
-        .catch(() => ({}));
+      const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
           data?.error ||
-            "Something went wrong."
+            "Unable to update booking status."
         );
       }
 
-      window.location.reload();
-    } catch (requestError: unknown) {
-      if (requestError instanceof Error) {
-        setError(requestError.message);
-      } else {
-        setError("Something went wrong.");
-      }
+      setCurrentStatus(nextStatus);
+      setMessage(
+        `Booking marked as ${statusLabels[nextStatus]}.`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update booking status."
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function approve() {
-    await request({
-      action: "approve",
-    });
-  }
+  async function adminOverride() {
+    if (overrideLoading) return;
 
-  async function reject() {
-    const confirmed = window.confirm(
-      "Reject this booking request?"
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    await request({
-      action: "reject",
-    });
-  }
-
-  async function complete() {
-    const confirmed = window.confirm(
-      "Mark this appointment as completed?"
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    await request({
-      action: "complete",
-    });
-  }
-
-  async function cancel() {
-    if (!cancellationReason) {
+    if (overrideStatus === currentStatus) {
       setError(
-        "Please select a cancellation reason."
+        "Please select a different status."
       );
       return;
     }
 
-    if (
-      cancellationReason === "Other" &&
-      !otherReason.trim()
-    ) {
-      setError(
-        "Please enter the cancellation reason."
+    const confirmed = window.confirm(
+      `ADMIN OVERRIDE\n\nYou are about to force this booking to:\n\n${statusLabels[overrideStatus]}\n\nThis bypasses the normal booking workflow. Use this only for emergency correction or recovery.\n\nContinue?`
+    );
+
+    if (!confirmed) return;
+
+    setOverrideLoading(true);
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        "/api/admin/bookings",
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id,
+            action: "admin_override",
+            status: overrideStatus,
+          }),
+        }
       );
-      return;
-    }
 
-    await request({
-      action: "cancel",
-      reason: cancellationReason,
-      other_reason: otherReason.trim(),
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Unable to apply admin override."
+        );
+      }
+
+      setCurrentStatus(overrideStatus);
+      setOverrideOpen(false);
+
+      setMessage(
+        `Admin override applied: ${statusLabels[overrideStatus]}.`
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to apply admin override."
+      );
+    } finally {
+      setOverrideLoading(false);
+    }
+  }
+
+  function handleCancel() {
+    updateStatus("cancelled", {
+      cancellation_reason: cancellationReason,
+      cancellation_note:
+        cancellationNote.trim() || null,
     });
   }
 
-  async function reset() {
-    const confirmed = window.confirm(
-      `Reset this booking to "${resetStatus}"?`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    await request({
-      action: "reset",
-      status: resetStatus,
-    });
-  }
-
-  async function remove() {
-    const confirmed = window.confirm(
-      "PERMANENTLY DELETE this booking?\n\nThis cannot be undone."
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    const secondConfirmation = window.confirm(
-      "Are you absolutely sure? All booking/payment records associated with this booking will be removed."
-    );
-
-    if (!secondConfirmation) {
-      return;
-    }
-
-    await request({
-      action: "delete",
-      confirm: true,
-    });
-  }
+  const canApprove = currentStatus === "pending";
+  const canReject =
+    currentStatus === "pending" ||
+    currentStatus === "approved";
+  const canConfirm =
+    currentStatus === "payment_submitted";
+  const canComplete =
+    currentStatus === "confirmed";
 
   return (
-    <div className="space-y-4">
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+    <div className="booking-actions">
+      <div className="booking-actions-title">
+        Booking actions
+      </div>
+
+      {message && (
+        <div className="booking-action-message success">
+          {message}
+        </div>
+      )}
+
+      {error && (
+        <div className="booking-action-message error">
           {error}
         </div>
-      ) : null}
+      )}
 
-      <div className="flex flex-wrap gap-2">
-        {status === "pending" ? (
-          <>
-            <button
-              type="button"
-              onClick={approve}
-              disabled={loading}
-              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Approve
-            </button>
+      <div className="booking-action-current">
+        <span>Current status</span>
+        <strong>
+          {statusLabels[currentStatus]}
+        </strong>
+      </div>
 
-            <button
-              type="button"
-              onClick={reject}
-              disabled={loading}
-              className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-            >
-              Reject
-            </button>
-          </>
-        ) : null}
+      {canApprove && (
+        <button
+          type="button"
+          className="btn primary"
+          disabled={loading}
+          onClick={() =>
+            updateStatus("approved")
+          }
+        >
+          {loading
+            ? "Updating..."
+            : "Approve booking"}
+        </button>
+      )}
 
-        {status === "confirmed" ? (
-          <button
-            type="button"
-            onClick={complete}
-            disabled={loading}
-            className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Mark Completed
-          </button>
-        ) : null}
+      {canConfirm && (
+        <button
+          type="button"
+          className="btn primary"
+          disabled={loading}
+          onClick={() =>
+            updateStatus("confirmed")
+          }
+        >
+          {loading
+            ? "Updating..."
+            : "Confirm booking"}
+        </button>
+      )}
 
-        {status !== "cancelled" &&
-        status !== "completed" ? (
-          <button
-            type="button"
-            onClick={() =>
-              setCancellationOpen(
-                (value) => !value
+      {canComplete && (
+        <button
+          type="button"
+          className="btn primary"
+          disabled={loading}
+          onClick={() =>
+            updateStatus("completed")
+          }
+        >
+          {loading
+            ? "Updating..."
+            : "Mark completed"}
+        </button>
+      )}
+
+      {canReject && (
+        <button
+          type="button"
+          className="btn secondary"
+          disabled={loading}
+          onClick={() =>
+            updateStatus("rejected")
+          }
+        >
+          {loading ? "Updating..." : "Reject booking"}
+        </button>
+      )}
+
+      {resetStatuses.includes(currentStatus) && (
+        <div className="booking-cancel-box">
+          <div className="booking-cancel-title">
+            Cancel booking
+          </div>
+
+          <select
+            value={cancellationReason}
+            onChange={(event) =>
+              setCancellationReason(
+                event.target.value
               )
             }
             disabled={loading}
-            className="rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
           >
-            Cancel Booking
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() =>
-            setResetOpen(
-              (value) => !value
-            )
-          }
-          disabled={loading}
-          className="rounded-xl border border-black/10 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50"
-        >
-          Reset
-        </button>
-
-        <button
-          type="button"
-          onClick={remove}
-          disabled={loading}
-          className="rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50"
-        >
-          Delete Booking
-        </button>
-      </div>
-
-      {cancellationOpen ? (
-        <div className="rounded-2xl border border-black/10 bg-white p-4">
-          <h3 className="mb-3 text-sm font-semibold">
-            Cancellation Reason
-          </h3>
-
-          <div className="space-y-2">
             {cancellationReasons.map(
               (reason) => (
-                <label
-                  key={reason}
-                  className="flex cursor-pointer items-center gap-2 text-sm"
-                >
-                  <input
-                    type="radio"
-                    name={`cancel-${id}`}
-                    value={reason}
-                    checked={
-                      cancellationReason ===
-                      reason
-                    }
-                    onChange={(event) => {
-                      setCancellationReason(
-                        event.target.value
-                      );
-                      setError("");
-                    }}
-                  />
-
-                  <span>{reason}</span>
-                </label>
-              )
-            )}
-          </div>
-
-          {cancellationReason === "Other" ? (
-            <textarea
-              value={otherReason}
-              onChange={(event) => {
-                setOtherReason(
-                  event.target.value
-                );
-                setError("");
-              }}
-              placeholder="Enter cancellation reason..."
-              rows={3}
-              className="mt-3 w-full rounded-xl border border-black/10 px-3 py-2 text-sm outline-none focus:border-black/30"
-            />
-          ) : null}
-
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={cancel}
-              disabled={loading}
-              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            >
-              Confirm Cancellation
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setCancellationOpen(false);
-                setCancellationReason("");
-                setOtherReason("");
-                setError("");
-              }}
-              disabled={loading}
-              className="rounded-xl border border-black/10 px-4 py-2 text-sm disabled:opacity-50"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {resetOpen ? (
-        <div className="rounded-2xl border border-black/10 bg-white p-4">
-          <h3 className="mb-3 text-sm font-semibold">
-            Reset Booking
-          </h3>
-
-          <p className="mb-3 text-xs text-black/60">
-            Testing utility. Existing payment
-            records are not deleted.
-          </p>
-
-          <select
-            value={resetStatus}
-            onChange={(event) => {
-              setResetStatus(
-                event.target.value as BookingStatus
-              );
-              setError("");
-            }}
-            disabled={loading}
-            className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm"
-          >
-            {resetStatuses.map(
-              (option) => (
                 <option
-                  key={option.value}
-                  value={option.value}
+                  key={reason.value}
+                  value={reason.value}
                 >
-                  {option.label}
+                  {reason.label}
                 </option>
               )
             )}
           </select>
 
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={reset}
-              disabled={loading}
-              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          <textarea
+            value={cancellationNote}
+            onChange={(event) =>
+              setCancellationNote(
+                event.target.value
+              )
+            }
+            placeholder="Optional note"
+            rows={3}
+            disabled={loading}
+          />
+
+          <button
+            type="button"
+            className="btn secondary"
+            disabled={loading}
+            onClick={handleCancel}
+          >
+            {loading
+              ? "Updating..."
+              : "Cancel booking"}
+          </button>
+        </div>
+      )}
+
+      {/* Emergency-only admin control */}
+      <div className="booking-admin-override">
+        <div className="booking-admin-override-row">
+          <div>
+            <div className="booking-admin-override-label">
+              Admin Override
+            </div>
+
+            <div className="booking-admin-override-help">
+              Emergency correction only.
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="booking-admin-override-toggle"
+            onClick={() => {
+              setOverrideOpen(
+                (value) => !value
+              );
+              setError("");
+              setMessage("");
+            }}
+          >
+            {overrideOpen
+              ? "Close"
+              : "Open"}
+          </button>
+        </div>
+
+        {overrideOpen && (
+          <div className="booking-admin-override-controls">
+            <select
+              value={overrideStatus}
+              onChange={(event) =>
+                setOverrideStatus(
+                  event.target
+                    .value as BookingStatus
+                )
+              }
+              disabled={overrideLoading}
             >
-              Reset Booking
-            </button>
+              {adminOverrideStatuses.map(
+                (value) => (
+                  <option
+                    key={value}
+                    value={value}
+                  >
+                    {statusLabels[value]}
+                  </option>
+                )
+              )}
+            </select>
 
             <button
               type="button"
-              onClick={() => {
-                setResetOpen(false);
-                setError("");
-              }}
-              disabled={loading}
-              className="rounded-xl border border-black/10 px-4 py-2 text-sm disabled:opacity-50"
+              className="booking-admin-override-button"
+              disabled={overrideLoading}
+              onClick={adminOverride}
             >
-              Close
+              {overrideLoading
+                ? "Applying..."
+                : "Apply override"}
             </button>
           </div>
-        </div>
-      ) : null}
+        )}
+      </div>
+
+      <style jsx>{`
+        .booking-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .booking-actions-title {
+          font-size: 13px;
+          font-weight: 700;
+          margin-bottom: 2px;
+        }
+
+        .booking-action-current {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          border-radius: 9px;
+          background: #faf8f6;
+          border: 1px solid #eee8e4;
+          font-size: 11px;
+        }
+
+        .booking-action-current span {
+          color: #817779;
+        }
+
+        .booking-action-current strong {
+          color: var(--admin-text);
+          font-size: 11px;
+        }
+
+        .booking-action-message {
+          padding: 9px 11px;
+          border-radius: 8px;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .booking-action-message.success {
+          background: #f2f8f2;
+          border: 1px solid #dcebdc;
+        }
+
+        .booking-action-message.error {
+          background: #fff5f4;
+          border: 1px solid #efd8d5;
+          color: #8b4f4a;
+        }
+
+        .booking-cancel-box {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 12px;
+          margin-top: 2px;
+          border: 1px solid #eee8e4;
+          border-radius: 10px;
+          background: #faf8f6;
+        }
+
+        .booking-cancel-title {
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .booking-cancel-box select,
+        .booking-cancel-box textarea {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid #e4ddda;
+          border-radius: 8px;
+          background: white;
+          padding: 8px 9px;
+          font-family: inherit;
+          font-size: 11px;
+        }
+
+        .booking-cancel-box textarea {
+          resize: vertical;
+        }
+
+        /* Small emergency card at the very bottom */
+        .booking-admin-override {
+          margin-top: 18px;
+          padding: 9px 10px;
+          border: 1px solid #eadfd9;
+          border-radius: 8px;
+          background: #fcfaf9;
+        }
+
+        .booking-admin-override-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .booking-admin-override-label {
+          font-size: 10px;
+          font-weight: 700;
+          color: #756b6b;
+          line-height: 1.2;
+        }
+
+        .booking-admin-override-help {
+          margin-top: 2px;
+          font-size: 9px;
+          line-height: 1.2;
+          color: #9a9090;
+        }
+
+        .booking-admin-override-toggle {
+          flex: 0 0 auto;
+          border: 1px solid #e1d8d4;
+          border-radius: 6px;
+          background: white;
+          color: #756b6b;
+          padding: 5px 8px;
+          font-family: inherit;
+          font-size: 9px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .booking-admin-override-controls {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .booking-admin-override-controls select {
+          min-width: 0;
+          height: 30px;
+          padding: 0 7px;
+          border: 1px solid #e1d8d4;
+          border-radius: 6px;
+          background: white;
+          color: #756b6b;
+          font-family: inherit;
+          font-size: 9px;
+        }
+
+        .booking-admin-override-button {
+          height: 30px;
+          padding: 0 9px;
+          border: 1px solid #d9ceca;
+          border-radius: 6px;
+          background: #f5f1ef;
+          color: #665d5d;
+          font-family: inherit;
+          font-size: 9px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .booking-admin-override-button:disabled,
+        .booking-admin-override-toggle:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+      `}</style>
     </div>
   );
 }

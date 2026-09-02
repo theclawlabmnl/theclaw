@@ -31,55 +31,94 @@ export default async function Confirmed({
     .eq("access_token", token)
     .single();
 
+  /*
+   * CONFIRMATION NOT AVAILABLE
+   */
   if (
     !booking ||
     booking.status !== "confirmed"
   ) {
     return (
-      <main className="form-page">
-        <div
-          className="container card"
-          style={{
-            maxWidth: 780,
-          }}
-        >
-          <div className="kicker">
-            Appointment
-          </div>
+      <main className="status-page">
+        <div className="status-page-inner">
+          <div className="status-card">
 
-          <h1 className="serif">
-            Confirmation is not available yet
-          </h1>
+            {/* BRAND */}
+            <div className="status-brand">
+              The Claw Lab MNL
+            </div>
 
-          <p
-            className="muted"
-            style={{
-              lineHeight: 1.6,
-            }}
-          >
-            Your appointment confirmation
-            will appear here once your
-            payment has been verified by
-            The Claw Lab.
-          </p>
+            {/* HEADER */}
+            <div className="status-header">
+              <h1>
+                Appointment
+              </h1>
+            </div>
 
-          <div
-            style={{
-              marginTop: 20,
-              textAlign: "center",
-            }}
-          >
-            <Link
-              href={`/status/${token}`}
-              className="muted"
-              style={{
-                fontSize: 13,
-                textDecoration: "underline",
-                textUnderlineOffset: 3,
-              }}
-            >
-              ← Back to booking status
-            </Link>
+            {/* STATUS */}
+            <div className="status-pill status-pill-pending">
+              <span className="status-pill-dot" />
+              Not Available Yet
+            </div>
+
+            {/* MESSAGE */}
+            <div className="status-message">
+              <h2>
+                Confirmation is not available yet
+              </h2>
+
+              <p>
+                Your appointment confirmation
+                will appear here once your
+                payment has been verified by
+                The Claw Lab MNL.
+              </p>
+            </div>
+
+            {/* ACTION */}
+            <div className="status-action">
+              <Link
+                href={`/status/${token}`}
+                className="status-primary-button"
+              >
+                ← Back to Booking Status
+              </Link>
+            </div>
+
+            {/* CONTACT */}
+            <div className="status-contact">
+              <p>
+                Need help? Message us.
+              </p>
+
+              <div className="status-contact-links">
+
+                <a
+                  href="https://instagram.com/theclawlabmnl"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Instagram
+                </a>
+
+                <a
+                  href="https://m.me/theclawlabmnl"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Messenger
+                </a>
+
+              </div>
+            </div>
+
+            {/* FOOTER */}
+            <div className="status-footer">
+              <Link href="/status">
+                Check another booking
+              </Link>
+            </div>
+
           </div>
         </div>
       </main>
@@ -100,221 +139,192 @@ export default async function Confirmed({
   );
 
   return (
-    <main className="form-page">
-      <div
-        className="container"
-        style={{
-          maxWidth: 780,
-        }}
-      >
-        <div
-          className="card"
-          style={{
-            padding: 30,
-          }}
-        >
-          <div
-            style={{
-              textAlign: "center",
-            }}
-          >
-            <div className="kicker">
-              You're booked
-            </div>
+    <main className="status-page">
 
-            <h1
-              className="serif"
-              style={{
-                fontSize: 46,
-                margin: "7px 0 10px",
-              }}
-            >
-              Appointment Confirmed ✨
+      <div className="status-page-inner">
+
+        <div className="status-card">
+
+          {/* BRAND */}
+          <div className="status-brand">
+            The Claw Lab MNL
+          </div>
+
+          {/* HEADER */}
+          <div className="status-header">
+            <h1>
+              Appointment Confirmation
             </h1>
+          </div>
 
-            <p
-              className="muted"
-              style={{
-                lineHeight: 1.6,
-                margin: "0 auto",
-                maxWidth: 580,
-              }}
-            >
+          {/* STATUS */}
+          <div className="status-pill status-pill-confirmed">
+            <span className="status-pill-dot" />
+            Confirmed
+          </div>
+
+          {/* MESSAGE */}
+          <div className="status-message">
+            <h2>
+              Your appointment is confirmed ✨
+            </h2>
+
+            <p>
               Your payment has been verified
-              by TheClawLab MNL and your
-              appointment is officially
+              and your appointment is officially
               confirmed.
             </p>
           </div>
 
-          <div
-            style={{
-              marginTop: 26,
-              padding: "18px 16px",
-              border: "1px solid var(--line)",
-              borderRadius: 14,
-              background: "var(--soft)",
-              textAlign: "center",
-            }}
-          >
-            <div className="muted">
-              Booking reference
+          {/* BOOKING SUMMARY */}
+          <section className="status-summary">
+
+            <div className="status-summary-title">
+              Booking Summary
             </div>
 
-            <strong
-              style={{
-                display: "block",
-                marginTop: 4,
-                fontSize: 20,
-                letterSpacing: "0.03em",
-              }}
-            >
-              {booking.reference_code}
-            </strong>
-          </div>
+            <div className="status-summary-grid">
 
-          <div
-            style={{
-              marginTop: 28,
-            }}
-          >
-            <div className="kicker">
-              Appointment
-            </div>
+              <div className="status-summary-item">
+                <span>
+                  Client
+                </span>
 
-            <h2
-              className="serif"
-              style={{
-                margin: "6px 0 12px",
-                fontSize: 28,
-              }}
-            >
-              {booking.customer_name}
-            </h2>
+                <strong>
+                  {booking.customer_name || "—"}
+                </strong>
+              </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(2, minmax(0, 1fr))",
-                gap: 12,
-              }}
-            >
-              <div
-                style={{
-                  padding: "13px 14px",
-                  border: "1px solid var(--line)",
-                  borderRadius: 12,
-                }}
-              >
-                <div className="muted">
-                  Date
-                </div>
+              <div className="status-summary-item">
+                <span>
+                  Appointment
+                </span>
 
                 <strong>
                   {formatDate(
                     booking.preferred_date
                   )}
+                  {" · "}
+                  {booking.preferred_time || "—"}
                 </strong>
               </div>
 
-              <div
-                style={{
-                  padding: "13px 14px",
-                  border: "1px solid var(--line)",
-                  borderRadius: 12,
-                }}
-              >
-                <div className="muted">
-                  Time
-                </div>
+              <div className="status-summary-item">
+                <span>
+                  Reference
+                </span>
 
                 <strong>
-                  {booking.preferred_time}
+                  {booking.reference_code || "—"}
                 </strong>
               </div>
+
             </div>
+
+          </section>
+
+          {/* CONFIRMATION ACTION */}
+          <div className="status-action">
+
+             {/* No back button here */}
+
           </div>
 
-          <div
+          {/* SERVICES */}
+          <section
             style={{
-              marginTop: 28,
-              paddingTop: 22,
-              borderTop: "1px solid var(--line)",
+              marginTop: "24px",
+              paddingTop: "22px",
+              borderTop:
+                "1px solid var(--line)",
             }}
           >
-            <div className="kicker">
-              Appointment summary
+
+            <div className="status-summary-title">
+              Appointment Summary
             </div>
 
             <h2
-              className="serif"
               style={{
-                margin: "6px 0 10px",
-                fontSize: 29,
+                margin: "6px 0 12px",
+                fontFamily:
+                  "var(--font-serif, Georgia, serif)",
+                fontSize: "28px",
+                fontWeight: 400,
               }}
             >
               Services
             </h2>
 
-            {(booking.booking_services || []).map(
-              (item: any) => (
-                <div
-                  key={item.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    gap: 18,
-                    padding: "13px 0",
-                    borderBottom:
-                      "1px solid var(--line)",
-                  }}
-                >
+            <div>
+              {(booking.booking_services || []).map(
+                (item: any) => (
                   <div
+                    key={item.id}
                     style={{
-                      minWidth: 0,
+                      display: "flex",
+                      justifyContent:
+                        "space-between",
+                      alignItems:
+                        "flex-start",
+                      gap: "16px",
+                      padding: "13px 0",
+                      borderBottom:
+                        "1px solid var(--line)",
                     }}
                   >
-                    <strong>
-                      {item.service_name}
+
+                    <div
+                      style={{
+                        minWidth: 0,
+                      }}
+                    >
+                      <strong>
+                        {item.service_name}
+                      </strong>
+
+                      {item.variation_name && (
+                        <div
+                          className="muted"
+                          style={{
+                            marginTop: "3px",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {item.variation_name}
+                        </div>
+                      )}
+                    </div>
+
+                    <strong
+                      style={{
+                        whiteSpace:
+                          "nowrap",
+                      }}
+                    >
+                      {peso(item.price)}
                     </strong>
 
-                    {item.variation_name && (
-                      <div
-                        className="muted"
-                        style={{
-                          marginTop: 2,
-                        }}
-                      >
-                        {item.variation_name}
-                      </div>
-                    )}
                   </div>
+                )
+              )}
+            </div>
 
-                  <strong
-                    style={{
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {peso(item.price)}
-                  </strong>
-                </div>
-              )
-            )}
-
+            {/* PAYMENT SUMMARY */}
             <div
               style={{
                 display: "grid",
-                gap: 8,
-                marginTop: 18,
+                gap: "9px",
+                marginTop: "18px",
               }}
             >
+
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12,
+                  justifyContent:
+                    "space-between",
+                  gap: "12px",
                 }}
               >
                 <span className="muted">
@@ -329,8 +339,9 @@ export default async function Confirmed({
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12,
+                  justifyContent:
+                    "space-between",
+                  gap: "12px",
                 }}
               >
                 <span className="muted">
@@ -345,10 +356,11 @@ export default async function Confirmed({
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  marginTop: 4,
-                  paddingTop: 12,
+                  justifyContent:
+                    "space-between",
+                  gap: "12px",
+                  marginTop: "4px",
+                  paddingTop: "12px",
                   borderTop:
                     "1px solid var(--line)",
                 }}
@@ -361,97 +373,88 @@ export default async function Confirmed({
                   {peso(remaining)}
                 </strong>
               </div>
-            </div>
-          </div>
 
-          <div
+            </div>
+
+          </section>
+
+          {/* BEFORE YOUR APPOINTMENT */}
+          <section
             style={{
-              marginTop: 28,
-              paddingTop: 22,
-              borderTop: "1px solid var(--line)",
+              marginTop: "24px",
+              paddingTop: "22px",
+              borderTop:
+                "1px solid var(--line)",
             }}
           >
-            <div className="kicker">
-              Before your appointment
+
+            <div className="status-summary-title">
+              Before Your Appointment
             </div>
 
             <h2
-              className="serif"
               style={{
                 margin: "6px 0 8px",
-                fontSize: 29,
+                fontFamily:
+                  "var(--font-serif, Georgia, serif)",
+                fontSize: "28px",
+                fontWeight: 400,
               }}
             >
-              Appointment instructions
+              Appointment Instructions
             </h2>
 
             <p
               className="muted"
               style={{
                 lineHeight: 1.65,
+                margin: 0,
               }}
             >
               Please review the appointment
               instructions, studio reminders,
               policies, and other important
-              information before your visit.
+              information you may need before your visit.
             </p>
 
             <a
-              className="btn secondary"
-              href={INSTRUCTIONS_URL}
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                marginTop: 6,
-              }}
-            >
-              View Appointment Instructions →
-            </a>
-          </div>
+  href={INSTRUCTIONS_URL}
+  target="_blank"
+  rel="noreferrer"
+  className="status-primary-button"
+  style={{
+    marginTop: "14px",
+    display: "inline-flex",
+    textDecoration: "none",
+    background: "#f3d6dc",
+    color: "#000",
+  }}
+>
+  View Appointment Instructions →
+</a>
 
-          <div
-            style={{
-              marginTop: 28,
-              paddingTop: 22,
-              borderTop: "1px solid var(--line)",
-            }}
-          >
-            <div className="kicker">
-              Need help?
-            </div>
+<Link
+  href={`/status/${token}`}
+  className="status-primary-button"
+  style={{
+    marginTop: "10px",
+  }}
+>
+  ← Back to Booking Status
+</Link>
 
-            <h2
-              className="serif"
-              style={{
-                margin: "6px 0 8px",
-                fontSize: 29,
-              }}
-            >
+          </section>
+
+          {/* CONTACT */}
+          <div className="status-contact">
+
+            <p>
               Questions? Message us.
-            </h2>
-
-            <p
-              className="muted"
-              style={{
-                lineHeight: 1.65,
-                marginBottom: 14,
-              }}
-            >
-              If you have any questions about
-              your appointment, just message us
-              and we'll be happy to help.
             </p>
 
-            <div
-              className="actions"
-              style={{
-                gap: 8,
-                flexWrap: "wrap",
-              }}
-            >
+            <div className="status-contact-links">
+
               <a
-                className="btn secondary"
                 href="https://instagram.com/theclawlabmnl"
                 target="_blank"
                 rel="noreferrer"
@@ -460,36 +463,30 @@ export default async function Confirmed({
               </a>
 
               <a
-                className="btn secondary"
                 href="https://m.me/theclawlabmnl"
                 target="_blank"
                 rel="noreferrer"
               >
                 Messenger
               </a>
+
             </div>
+
           </div>
 
-          <div
-            style={{
-              marginTop: 28,
-              textAlign: "center",
-            }}
-          >
-            <Link
-              href={`/status/${token}`}
-              className="muted"
-              style={{
-                fontSize: 13,
-                textDecoration: "underline",
-                textUnderlineOffset: 3,
-              }}
-            >
-              ← Back to booking status
+          {/* FOOTER */}
+          <div className="status-footer">
+
+            <Link href={`/status/${token}`}>
+              ← Back to Booking Status
             </Link>
+
           </div>
+
         </div>
+
       </div>
+
     </main>
   );
 }

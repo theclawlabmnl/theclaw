@@ -68,7 +68,8 @@ export async function GET(
         id,
         reference_code,
         status,
-        customer_name
+        customer_name,
+        access_token
         `
       )
       .eq("id", bookingId)
@@ -142,10 +143,15 @@ export async function GET(
 
       booking: {
         id: booking.id,
+
         reference_code:
           booking.reference_code,
+
         customer_name:
           booking.customer_name,
+
+        access_token:
+          booking.access_token,
       },
 
       already_reviewed:
@@ -169,7 +175,6 @@ export async function GET(
     );
   }
 }
-
 
 export async function POST(
   request: NextRequest
@@ -286,7 +291,8 @@ export async function POST(
         id,
         status,
         customer_name,
-        reference_code
+        reference_code,
+        access_token
         `
       )
       .eq("id", bookingId)

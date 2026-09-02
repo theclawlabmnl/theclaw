@@ -137,6 +137,45 @@ export default async function Payment({
           </p>
         </header>
 
+        {/* PAYMENT DEADLINE WARNING */}
+        <section
+          style={{
+            marginTop: "14px",
+            marginBottom: "16px",
+            padding: "9px 12px",
+            borderRadius: "7px",
+            border: "1px solid rgba(190, 50, 50, 0.35)",
+            background: "rgba(190, 50, 50, 0.07)",
+            color: "#000",
+          }}
+        >
+          <strong
+            style={{
+              display: "block",
+              marginBottom: "2px",
+              fontSize: "12px",
+              lineHeight: 1.3,
+            }}
+          >
+            ⏰ 3-Hour Payment Deadline
+          </strong>
+
+          <p
+            style={{
+              margin: 0,
+              lineHeight: 1.4,
+              fontSize: "11px",
+            }}
+          >
+            Your appointment is reserved for{" "}
+            <strong>3 hours after approval</strong>.
+            Please submit your payment and payment
+            proof within this time. If payment is not
+            submitted within 3 hours, your booking will
+            be <strong>automatically cancelled</strong>.
+          </p>
+        </section>
+
         <PaymentForm
           token={token}
 

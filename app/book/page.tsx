@@ -81,47 +81,14 @@ export default async function BookPage() {
     );
 
   return (
-    <main className="form-page">
-      <div className="container">
-        <div
-          className="section-head"
-        >
-          <div>
-            <div className="kicker">
-              The Claw Lab MNL
-            </div>
-
-            <h1
-              className="serif"
-              style={{
-                fontSize: 48,
-                margin:
-                  "8px 0",
-              }}
-            >
-              Book an appointment ♡
-            </h1>
-
-            <p className="muted">
-              Send a request first —
-              your appointment is only
-              confirmed after Nailtech
-              approval and payment
-              verification.
-            </p>
-          </div>
-        </div>
-
-        <BookingForm
-          services={
-            services || []
-          }
-          promos={
-            promos || []
-          }
-          settings={map}
-        />
-      </div>
-    </main>
+    <BookingForm
+      services={
+        services || []
+      }
+      promos={
+        promos || []
+      }
+      settings={map}
+    />
   );
 }

@@ -1,11 +1,7 @@
-export const dynamic =
-  "force-dynamic";
+export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-
-import {
-  supabaseAdmin,
-} from "@/lib/supabase-admin";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 const dashboardCards = [
   {
@@ -78,228 +74,127 @@ const quickLinks = [
   },
 ] as const;
 
-function formatMoney(
-  value: number
-) {
-  return `₱${value.toLocaleString(
-    "en-PH",
-    {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }
-  )}`;
+function formatMoney(value: number) {
+  return `₱${value.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 export default async function Admin() {
-  const db =
-    supabaseAdmin();
+  const db = supabaseAdmin();
 
-  const countResults =
-    await Promise.all(
-      dashboardCards.map(
-        async (item) => {
-          const status =
-            item.href.includes(
-              "status="
-            )
-              ? item.href.split(
-                  "status="
-                )[1]
-              : null;
+  const countResults = await Promise.all(
+    dashboardCards.map(async (item) => {
+      const status = item.href.includes("status=")
+        ? item.href.split("status=")[1]
+        : null;
 
-          if (!status) {
-            return 0;
-          }
+      if (!status) return 0;
 
-          const {
-            count,
-            error,
-          } =
-            await db
-              .from("bookings")
-              .select(
-                "id",
-                {
-                  count:
-                    "exact",
-                  head: true,
-                }
-              )
-              .eq(
-                "status",
-                status
-              );
-
-          if (error) {
-            console.error(
-              "Dashboard count error:",
-              error
-            );
-
-            return 0;
-          }
-
-          return (
-            count || 0
-          );
-        }
-      )
-    );
-
-  /*
-   * Payments waiting for verification.
-   */
-  const {
-    count:
-      paymentVerificationCount,
-    error:
-      paymentVerificationError,
-  } =
-    await db
-      .from("payments")
-      .select(
-        "id",
-        {
-          count:
-            "exact",
+      const { count, error } = await db
+        .from("bookings")
+        .select("id", {
+          count: "exact",
           head: true,
-        }
-      )
-      .eq(
-        "status",
-        "submitted"
-      );
+        })
+        .eq("status", status);
 
-  if (
-    paymentVerificationError
-  ) {
+      if (error) {
+        console.error(
+          "Dashboard count error:",
+          error
+        );
+
+        return 0;
+      }
+
+      return count || 0;
+    })
+  );
+
+  const {
+    count: paymentVerificationCount,
+    error: paymentVerificationError,
+  } = await db
+    .from("payments")
+    .select("id", {
+      count: "exact",
+      head: true,
+    })
+    .eq("status", "submitted");
+
+  if (paymentVerificationError) {
     console.error(
       "Payment verification count error:",
       paymentVerificationError
     );
   }
 
-  /*
-   * Total net income.
-   *
-   * Only verified payments count.
-   * net_amount is preferred.
-   * Older records fall back to amount.
-   *
-   * QR PH processing fees remain separate
-   * and are not deducted from booking balances.
-   */
   const {
-    data:
-      verifiedPayments,
-    error:
-      verifiedPaymentsError,
-  } =
-    await db
-      .from("payments")
-      .select(
-        "amount,net_amount,processing_fee,status"
-      )
-      .eq(
-        "status",
-        "verified"
-      );
+    data: verifiedPayments,
+    error: verifiedPaymentsError,
+  } = await db
+    .from("payments")
+    .select(
+      "amount,net_amount,processing_fee,status"
+    )
+    .eq("status", "verified");
 
-  if (
-    verifiedPaymentsError
-  ) {
+  if (verifiedPaymentsError) {
     console.error(
       "Net income query error:",
       verifiedPaymentsError
     );
   }
 
-  const totalNetIncome =
-    (
-      verifiedPayments ||
-      []
-    ).reduce(
-      (
-        total: number,
-        payment: any
-      ) => {
-        const net =
-          Number(
-            payment.net_amount ??
-              payment.amount ??
-              0
-          );
-
-        return (
-          total +
-          Math.max(
-            0,
-            net
-          )
-        );
-      },
-      0
-    );
-
-  /*
-   * Pending reviews.
-   */
-  const {
-    count:
-      reviewCount,
-    error:
-      reviewCountError,
-  } =
-    await db
-      .from("reviews")
-      .select(
-        "id",
-        {
-          count:
-            "exact",
-          head: true,
-        }
-      )
-      .eq(
-        "status",
-        "pending"
+  const totalNetIncome = (
+    verifiedPayments || []
+  ).reduce(
+    (total: number, payment: any) => {
+      const net = Number(
+        payment.net_amount ??
+          payment.amount ??
+          0
       );
 
-  if (
-    reviewCountError
-  ) {
+      return total + Math.max(0, net);
+    },
+    0
+  );
+
+  const {
+    count: reviewCount,
+    error: reviewCountError,
+  } = await db
+    .from("reviews")
+    .select("id", {
+      count: "exact",
+      head: true,
+    })
+    .eq("status", "pending");
+
+  if (reviewCountError) {
     console.error(
       "Review count error:",
       reviewCountError
     );
   }
 
-  /*
-   * Payments card uses its own count.
-   */
-  const cardCounts =
-    dashboardCards.map(
-      (
-        item,
-        index
-      ) => {
-        if (
-          item.label ===
-          "Payments to verify"
-        ) {
-          return (
-            paymentVerificationCount ||
-            0
-          );
-        }
-
+  const cardCounts = dashboardCards.map(
+    (item, index) => {
+      if (
+        item.label ===
+        "Payments to verify"
+      ) {
         return (
-          countResults[
-            index
-          ] || 0
+          paymentVerificationCount || 0
         );
       }
-    );
+
+      return countResults[index] || 0;
+    }
+  );
 
   return (
     <div className="admin-page">
@@ -307,20 +202,18 @@ export default async function Admin() {
       <section
         className="admin-welcome"
         style={{
-          marginBottom:
-            34,
+          marginBottom: 34,
         }}
       >
         <div>
           <div className="kicker">
-            The Claw Lab MNL · Nailtech
+            The Claw Lab MNL · Nails by Arkie
           </div>
 
           <h1
             className="serif"
             style={{
-              margin:
-                "5px 0 7px",
+              margin: "5px 0 7px",
             }}
           >
             Good day ♡
@@ -329,10 +222,8 @@ export default async function Admin() {
           <p
             className="admin-lead"
             style={{
-              margin:
-                0,
-              maxWidth:
-                620,
+              margin: 0,
+              maxWidth: 620,
             }}
           >
             Here’s your quick overview.
@@ -347,8 +238,7 @@ export default async function Admin() {
         <div
           className="admin-section-title-row"
           style={{
-            marginBottom:
-              16,
+            marginBottom: 16,
           }}
         >
           <div>
@@ -359,8 +249,7 @@ export default async function Admin() {
             <h2
               className="serif"
               style={{
-                margin:
-                  "4px 0 0",
+                margin: "4px 0 0",
               }}
             >
               Today’s dashboard
@@ -371,45 +260,35 @@ export default async function Admin() {
         <div
           className="admin-stat-grid"
           style={{
-            display:
-              "grid",
+            display: "grid",
             gridTemplateColumns:
               "repeat(2, minmax(0, 1fr))",
             gap: 16,
+            alignItems: "stretch",
           }}
         >
+          {/* BOOKING STATUS CARDS */}
           {dashboardCards.map(
-            (
-              item,
-              index
-            ) => (
+            (item, index) => (
               <Link
-                key={
-                  item.label
-                }
-                href={
-                  item.href
-                }
+                key={item.label}
+                href={item.href}
                 style={{
-                  display:
-                    "block",
+                  display: "flex",
                   textDecoration:
                     "none",
-                  minWidth:
-                    0,
+                  minWidth: 0,
                 }}
               >
                 <article
                   className="card"
                   style={{
-                    height:
-                      "100%",
-                    minHeight:
-                      145,
+                    width: "100%",
+                    minHeight: 145,
+                    height: 145,
                     padding:
                       "18px 20px",
-                    display:
-                      "flex",
+                    display: "flex",
                     flexDirection:
                       "column",
                     justifyContent:
@@ -420,8 +299,7 @@ export default async function Admin() {
                 >
                   <div
                     style={{
-                      display:
-                        "flex",
+                      display: "flex",
                       alignItems:
                         "center",
                       justifyContent:
@@ -432,21 +310,16 @@ export default async function Admin() {
                     <span
                       className="muted"
                       style={{
-                        fontSize:
-                          12,
+                        fontSize: 12,
                       }}
                     >
-                      {
-                        item.label
-                      }
+                      {item.label}
                     </span>
 
                     <span
                       style={{
-                        fontSize:
-                          16,
-                        lineHeight:
-                          1,
+                        fontSize: 16,
+                        lineHeight: 1,
                       }}
                     >
                       →
@@ -455,19 +328,15 @@ export default async function Admin() {
 
                   <div
                     style={{
-                      marginTop:
-                        10,
+                      marginTop: 10,
                     }}
                   >
                     <div
                       className="serif"
                       style={{
-                        fontSize:
-                          34,
-                        lineHeight:
-                          1,
-                        marginBottom:
-                          7,
+                        fontSize: 34,
+                        lineHeight: 1,
+                        marginBottom: 7,
                       }}
                     >
                       {
@@ -480,17 +349,13 @@ export default async function Admin() {
                     <p
                       className="muted"
                       style={{
-                        margin:
-                          0,
-                        fontSize:
-                          12,
+                        margin: 0,
+                        fontSize: 12,
                         lineHeight:
                           1.45,
                       }}
                     >
-                      {
-                        item.note
-                      }
+                      {item.note}
                     </p>
                   </div>
                 </article>
@@ -498,16 +363,15 @@ export default async function Admin() {
             )
           )}
 
-          {/* NET INCOME */}
-          <div
+          {/* TOTAL NET INCOME */}
+          <article
             className="card"
             style={{
-              minHeight:
-                145,
-              padding:
-                "18px 20px",
-              display:
-                "flex",
+              width: "100%",
+              minHeight: 145,
+              height: 145,
+              padding: "18px 20px",
+              display: "flex",
               flexDirection:
                 "column",
               justifyContent:
@@ -518,8 +382,7 @@ export default async function Admin() {
           >
             <div
               style={{
-                display:
-                  "flex",
+                display: "flex",
                 alignItems:
                   "center",
                 justifyContent:
@@ -530,8 +393,7 @@ export default async function Admin() {
               <span
                 className="muted"
                 style={{
-                  fontSize:
-                    12,
+                  fontSize: 12,
                 }}
               >
                 Total net income
@@ -539,8 +401,7 @@ export default async function Admin() {
 
               <span
                 style={{
-                  fontSize:
-                    12,
+                  fontSize: 12,
                 }}
               >
                 Verified
@@ -549,19 +410,15 @@ export default async function Admin() {
 
             <div
               style={{
-                marginTop:
-                  10,
+                marginTop: 10,
               }}
             >
               <div
                 className="serif"
                 style={{
-                  fontSize:
-                    30,
-                  lineHeight:
-                    1.1,
-                  marginBottom:
-                    7,
+                  fontSize: 30,
+                  lineHeight: 1.1,
+                  marginBottom: 7,
                 }}
               >
                 {formatMoney(
@@ -572,12 +429,9 @@ export default async function Admin() {
               <p
                 className="muted"
                 style={{
-                  margin:
-                    0,
-                  fontSize:
-                    12,
-                  lineHeight:
-                    1.45,
+                  margin: 0,
+                  fontSize: 12,
+                  lineHeight: 1.45,
                 }}
               >
                 Verified payments after
@@ -585,22 +439,106 @@ export default async function Admin() {
                 processing fees.
               </p>
             </div>
-          </div>
+          </article>
+
+          {/* REVIEWS WAITING */}
+          <Link
+            href="/admin/reviews"
+            style={{
+              display: "flex",
+              textDecoration:
+                "none",
+              minWidth: 0,
+            }}
+          >
+            <article
+              className="card"
+              style={{
+                width: "100%",
+                minHeight: 145,
+                height: 145,
+                padding: "18px 20px",
+                display: "flex",
+                flexDirection:
+                  "column",
+                justifyContent:
+                  "space-between",
+                boxSizing:
+                  "border-box",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems:
+                    "center",
+                  justifyContent:
+                    "space-between",
+                  gap: 12,
+                }}
+              >
+                <span
+                  className="muted"
+                  style={{
+                    fontSize: 12,
+                  }}
+                >
+                  Reviews waiting
+                </span>
+
+                <span
+                  style={{
+                    fontSize: 16,
+                    lineHeight: 1,
+                  }}
+                >
+                  →
+                </span>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 10,
+                }}
+              >
+                <div
+                  className="serif"
+                  style={{
+                    fontSize: 34,
+                    lineHeight: 1,
+                    marginBottom: 7,
+                  }}
+                >
+                  {reviewCount || 0}
+                </div>
+
+                <p
+                  className="muted"
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Approve or hide new reviews
+                  before they appear publicly.
+                </p>
+              </div>
+            </article>
+          </Link>
         </div>
       </section>
 
       {/* STUDIO TOOLS */}
       <section
         style={{
-          marginTop:
-            38,
+          marginTop: 38,
         }}
       >
         <div
           className="admin-section-title-row"
           style={{
-            marginBottom:
-              16,
+            marginBottom: 16,
           }}
         >
           <div>
@@ -611,8 +549,7 @@ export default async function Admin() {
             <h2
               className="serif"
               style={{
-                margin:
-                  "4px 0 0",
+                margin: "4px 0 0",
               }}
             >
               Studio tools
@@ -622,42 +559,34 @@ export default async function Admin() {
 
         <div
           style={{
-            display:
-              "grid",
+            display: "grid",
             gridTemplateColumns:
               "repeat(2, minmax(0, 1fr))",
             gap: 16,
+            alignItems: "stretch",
           }}
         >
           {quickLinks.map(
-            (
-              item
-            ) => (
+            (item) => (
               <Link
-                key={
-                  item.href
-                }
-                href={
-                  item.href
-                }
+                key={item.href}
+                href={item.href}
                 style={{
-                  display:
-                    "block",
+                  display: "flex",
                   textDecoration:
                     "none",
-                  minWidth:
-                    0,
+                  minWidth: 0,
                 }}
               >
                 <article
                   className="card"
                   style={{
-                    minHeight:
-                      145,
+                    width: "100%",
+                    minHeight: 175,
+                    height: 200,
                     padding:
-                      "18px 20px",
-                    display:
-                      "flex",
+                      "20px 22px",
+                    display: "flex",
                     flexDirection:
                       "column",
                     boxSizing:
@@ -665,141 +594,49 @@ export default async function Admin() {
                   }}
                 >
                   <div className="kicker">
-                    {
-                      item.eyebrow
-                    }
+                    {item.eyebrow}
                   </div>
 
                   <h3
                     className="serif"
                     style={{
                       margin:
-                        "5px 0 7px",
-                      fontSize:
-                        22,
+                        "6px 0 9px",
+                      fontSize: 22,
+                      lineHeight: 1.15,
                     }}
                   >
-                    {
-                      item.title
-                    }
+                    {item.title}
                   </h3>
 
                   <p
                     className="muted"
                     style={{
-                      margin:
-                        "0 0 13px",
-                      fontSize:
-                        12,
-                      lineHeight:
-                        1.5,
+                      margin: 0,
+                      fontSize: 12,
+                      lineHeight: 1.55,
                     }}
                   >
-                    {
-                      item.description
-                    }
+                    {item.description}
                   </p>
 
                   <span
                     style={{
                       marginTop:
                         "auto",
-                      fontSize:
-                        12,
-                      fontWeight:
-                        600,
+                      paddingTop: 12,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      lineHeight: 1.2,
                     }}
                   >
                     Open{" "}
-                    {
-                      item.title
-                    }{" "}
-                    →
+                    {item.title} →
                   </span>
                 </article>
               </Link>
             )
           )}
-        </div>
-      </section>
-
-      {/* REVIEWS */}
-      <section
-        style={{
-          marginTop:
-            30,
-        }}
-      >
-        <div
-          className="card"
-          style={{
-            padding:
-              "18px 20px",
-            display:
-              "flex",
-            alignItems:
-              "center",
-            justifyContent:
-              "space-between",
-            gap: 18,
-            flexWrap:
-              "wrap",
-          }}
-        >
-          <div
-            style={{
-              minWidth:
-                0,
-            }}
-          >
-            <div className="kicker">
-              Reviews
-            </div>
-
-            <h3
-              className="serif"
-              style={{
-                margin:
-                  "4px 0 5px",
-                fontSize:
-                  22,
-              }}
-            >
-              {reviewCount ||
-                0}{" "}
-              review
-              {
-                (reviewCount ||
-                  0) ===
-                1
-                  ? ""
-                  : "s"
-              }{" "}
-              waiting
-            </h3>
-
-            <p
-              className="muted"
-              style={{
-                margin:
-                  0,
-                fontSize:
-                  12,
-                lineHeight:
-                  1.5,
-              }}
-            >
-              Approve or hide new reviews
-              before they appear publicly.
-            </p>
-          </div>
-
-          <Link
-            className="btn secondary small"
-            href="/admin/reviews"
-          >
-            REVIEW QUEUE →
-          </Link>
         </div>
       </section>
     </div>

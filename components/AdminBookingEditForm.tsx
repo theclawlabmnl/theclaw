@@ -511,38 +511,80 @@ export default function AdminBookingEditForm({
 
   /*
    * DISCOUNT
+   *
+   * Recalculate the 5% discount from the
+   * CURRENT service total.
+   *
+   * This is important when:
+   * - a service is changed
+   * - a service is added
+   * - a service is removed
+   * - a variation changes the price
    */
-  const storedDiscountAmount =
-    Number(
-      booking.discount_amount ||
-        0
-    );
-
   const discountAmount =
     booking.discount_verified
-      ? storedDiscountAmount > 0
-        ? storedDiscountAmount
-        : Number(
-            (
-              total * 0.05
-            ).toFixed(2)
-          )
+      ? Number(
+          (
+            total * 0.05
+          ).toFixed(2)
+        )
       : 0;
 
+  /*
+   * FINAL TOTAL
+   */
   const currentFinalTotal =
     Math.max(
       0,
-      total -
-        discountAmount
+      Number(
+        (
+          total -
+          discountAmount
+        ).toFixed(2)
+      )
     );
 
+  /*
+   * REMAINING
+   */
   const currentRemaining =
     Math.max(
       0,
-      currentFinalTotal -
-        verifiedDownPayment -
-        verifiedBalancePayments
+      Number(
+        (
+          currentFinalTotal -
+          verifiedDownPayment -
+          verifiedBalancePayments
+        ).toFixed(2)
+      )
     );
+
+  /*
+   * Keep the balance payment amount synced
+   * with the current remaining amount.
+   *
+   * This means changing services immediately
+   * updates the amount shown when Balance
+   * Payment is selected.
+   */
+  useEffect(() => {
+    if (
+      paymentType !== "balance" ||
+      paymentBusy
+    ) {
+      return;
+    }
+
+    setPaymentAmount(
+      currentRemaining > 0
+        ? currentRemaining.toFixed(2)
+        : ""
+    );
+  }, [
+    paymentType,
+    currentRemaining,
+    paymentBusy,
+  ]);
 
   /*
    * LOAD MONTHLY AVAILABILITY

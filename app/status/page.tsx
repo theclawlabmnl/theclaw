@@ -5,22 +5,20 @@ import {
   useState,
 } from "react";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function StatusPage() {
   const router = useRouter();
 
   const [mode, setMode] = useState<
-    "reference" | "details"
+    "reference" | "email"
   >("reference");
 
   const [referenceCode, setReferenceCode] =
     useState("");
 
-  const [customerName, setCustomerName] =
-    useState("");
-
-  const [mobileNumber, setMobileNumber] =
+  const [email, setEmail] =
     useState("");
 
   const [loading, setLoading] =
@@ -45,10 +43,8 @@ export default function StatusPage() {
                 referenceCode.trim(),
             }
           : {
-              customer_name:
-                customerName.trim(),
-              mobile_number:
-                mobileNumber.trim(),
+              email:
+                email.trim(),
             };
 
       const response = await fetch(
@@ -131,195 +127,289 @@ export default function StatusPage() {
   };
 
   return (
-    <main className="form-page">
-      <div
-        className="container"
-        style={{
-          maxWidth: 620,
-        }}
-      >
-        <div
-          className="card"
-          style={{
-            padding: 30,
-          }}
-        >
-          <div className="kicker">
-            Booking status
+    <main className="status-page">
+      <div className="status-page-inner">
+
+        <div className="status-card">
+
+          {/* BRAND */}
+          <div className="status-brand">
+            The Claw Lab MNL
           </div>
 
-          <h1
-            className="serif"
-            style={{
-              margin:
-                "7px 0 10px",
-              fontSize: 42,
-            }}
-          >
-            Check your appointment
-          </h1>
-
-          <p
-            className="muted"
-            style={{
-              lineHeight: 1.6,
-              marginBottom: 24,
-            }}
-          >
-            Enter your booking ID, or use
-            your exact full name and phone
-            number to view your appointment
-            status.
-          </p>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              marginBottom: 22,
-              flexWrap: "wrap",
-            }}
-          >
-            <button
-              type="button"
-              className={
-                mode === "reference"
-                  ? "btn small"
-                  : "btn secondary small"
-              }
-              onClick={() => {
-                setMode("reference");
-                setError("");
-              }}
-            >
-              BOOKING ID
-            </button>
-
-            <button
-              type="button"
-              className={
-                mode === "details"
-                  ? "btn small"
-                  : "btn secondary small"
-              }
-              onClick={() => {
-                setMode("details");
-                setError("");
-              }}
-            >
-              NAME + PHONE
-            </button>
+          {/* HEADER */}
+          <div className="status-header">
+            <h1>
+              Booking Status
+            </h1>
           </div>
 
-          <form
-            onSubmit={handleSubmit}
-          >
-            {mode ===
-              "reference" ? (
-              <div className="field">
-                <label htmlFor="reference_code">
-                  Booking ID
-                </label>
+          {/* MESSAGE */}
+          <div className="status-message">
 
-                <input
-                  id="reference_code"
-                  value={
-                    referenceCode
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setReferenceCode(
-                      event.target
-                        .value
-                    )
-                  }
-                  placeholder="Enter your booking ID"
-                  autoComplete="off"
-                />
-              </div>
-            ) : (
-              <>
-                <div className="field">
-                  <label htmlFor="customer_name">
-                    Exact full name
-                  </label>
+            <h2>
+              Check your appointment
+            </h2>
 
-                  <input
-                    id="customer_name"
-                    value={
-                      customerName
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setCustomerName(
-                        event.target
-                          .value
-                      )
-                    }
-                    placeholder="Enter the name used for your booking"
-                    autoComplete="name"
-                  />
-                </div>
+            <p>
+              Enter your booking ID or the
+              email address you used for your
+              booking to view your appointment
+              status.
+            </p>
 
-                <div
-                  className="field"
-                  style={{
-                    marginTop: 14,
-                  }}
-                >
-                  <label htmlFor="mobile_number">
-                    Phone number
-                  </label>
+          </div>
 
-                  <input
-                    id="mobile_number"
-                    value={
-                      mobileNumber
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setMobileNumber(
-                        event.target
-                          .value
-                      )
-                    }
-                    placeholder="Enter the phone number used for your booking"
-                    autoComplete="tel"
-                  />
-                </div>
-              </>
-            )}
+          {/* LOOKUP */}
+          <section className="status-summary">
 
-            {error && (
-              <div
-                className="notice"
+            <div className="status-summary-title">
+              Find Your Booking
+            </div>
+
+            {/* LOOKUP OPTIONS */}
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                marginBottom: "18px",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                className={
+                  mode === "reference"
+                    ? "status-primary-button"
+                    : "status-primary-button"
+                }
+                onClick={() => {
+                  setMode("reference");
+                  setError("");
+                }}
                 style={{
-                  marginTop: 16,
-                  lineHeight: 1.5,
+                  flex: 1,
+                  minWidth: "120px",
+                  border:
+                    mode === "reference"
+                      ? undefined
+                      : "1px solid #ddd",
+                  background:
+                    mode === "reference"
+                      ? undefined
+                      : "#fff",
+                  color:
+                    mode === "reference"
+                      ? undefined
+                      : "#555",
                 }}
               >
-                {error}
-              </div>
-            )}
+                Booking ID
+              </button>
 
-            <button
-              type="submit"
-              className="btn"
-              disabled={loading}
-              style={{
-                width: "100%",
-                marginTop: 18,
-              }}
+              <button
+                type="button"
+                className={
+                  mode === "email"
+                    ? "status-primary-button"
+                    : "status-primary-button"
+                }
+                onClick={() => {
+                  setMode("email");
+                  setError("");
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: "120px",
+                  border:
+                    mode === "email"
+                      ? undefined
+                      : "1px solid #ddd",
+                  background:
+                    mode === "email"
+                      ? undefined
+                      : "#fff",
+                  color:
+                    mode === "email"
+                      ? undefined
+                      : "#555",
+                }}
+              >
+                Email Address
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSubmit}
             >
-              {loading
-                ? "CHECKING..."
-                : "CHECK BOOKING STATUS"}
-            </button>
-          </form>
+              {mode ===
+                "reference" ? (
+                <div className="status-summary-item">
+                  <span>
+                    Booking ID
+                  </span>
+
+                  <input
+                    id="reference_code"
+                    value={
+                      referenceCode
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      setReferenceCode(
+                        event.target
+                          .value
+                      )
+                    }
+                    placeholder="Enter your booking ID"
+                    autoComplete="off"
+                    required
+                    style={{
+                      width: "100%",
+                      marginTop: "7px",
+                      boxSizing:
+                        "border-box",
+                      padding:
+                        "11px 12px",
+                      border:
+                        "1px solid #ddd",
+                      borderRadius:
+                        "7px",
+                      fontFamily:
+                        "inherit",
+                      fontSize:
+                        "13px",
+                      outline:
+                        "none",
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="status-summary-item">
+                  <span>
+                    Email Address
+                  </span>
+
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(
+                      event
+                    ) =>
+                      setEmail(
+                        event.target
+                          .value
+                      )
+                    }
+                    placeholder="Enter the email used for your booking"
+                    autoComplete="email"
+                    required
+                    style={{
+                      width: "100%",
+                      marginTop: "7px",
+                      boxSizing:
+                        "border-box",
+                      padding:
+                        "11px 12px",
+                      border:
+                        "1px solid #ddd",
+                      borderRadius:
+                        "7px",
+                      fontFamily:
+                        "inherit",
+                      fontSize:
+                        "13px",
+                      outline:
+                        "none",
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* ERROR */}
+              {error && (
+                <div
+                  className="status-review-box"
+                  style={{
+                    marginTop: "12px",
+                  }}
+                >
+                  <strong>
+                    Unable to find your booking
+                  </strong>
+
+                  <p>
+                    {error}
+                  </p>
+                </div>
+              )}
+
+              {/* SUBMIT */}
+              <button
+                type="submit"
+                className="status-primary-button"
+                disabled={loading}
+                style={{
+                  marginTop: "12px",
+                  width: "100%",
+                  opacity:
+                    loading ? 0.65 : 1,
+                  cursor:
+                    loading
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+              >
+                {loading
+                  ? "Checking..."
+                  : "Check Booking Status"}
+              </button>
+            </form>
+
+          </section>
+
+          {/* CONTACT */}
+          <div className="status-contact">
+
+            <p>
+              Questions? Message us.
+            </p>
+
+            <div className="status-contact-links">
+
+              <a
+                href="https://instagram.com/theclawlabmnl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Instagram
+              </a>
+
+              <a
+                href="https://m.me/theclawlabmnl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Messenger
+              </a>
+
+            </div>
+
+          </div>
+
+          {/* FOOTER */}
+          <div className="status-footer">
+
+            <Link href="/">
+              Back to TheClawLabMNL Homepage
+            </Link>
+
+          </div>
+
         </div>
+
       </div>
     </main>
   );

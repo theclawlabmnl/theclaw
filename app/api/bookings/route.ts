@@ -141,7 +141,9 @@ function toMinutes(
     return null;
   }
 
-  const [hoursRaw, minutesRaw] = normalized.split(":");
+  const [hoursRaw, minutesRaw] =
+    normalized.split(":");
+
   const hours = Number(hoursRaw);
   const minutes = Number(minutesRaw);
 
@@ -332,12 +334,25 @@ async function validateSelectedSlot(
   }
 
   const url = new URL(request.url);
-  url.pathname = "/api/availability";
+
+  url.pathname =
+    "/api/availability";
+
   url.search = "";
-  url.searchParams.set("date", date);
+
+  url.searchParams.set(
+    "date",
+    date
+  );
+
   url.searchParams.set(
     "duration",
-    String(Math.max(30, duration))
+    String(
+      Math.max(
+        30,
+        duration
+      )
+    )
   );
 
   const availabilityResponse =
@@ -354,7 +369,9 @@ async function validateSelectedSlot(
     result = null;
   }
 
-  if (!availabilityResponse.ok) {
+  if (
+    !availabilityResponse.ok
+  ) {
     return {
       ok: false,
       error:
@@ -363,14 +380,18 @@ async function validateSelectedSlot(
     };
   }
 
-  const slots = Array.isArray(result?.slots)
-    ? result.slots
-    : [];
+  const slots =
+    Array.isArray(
+      result?.slots
+    )
+      ? result.slots
+      : [];
 
   const selectedSlotExists =
     slots.some(
       (slot: unknown) =>
-        normalizeTime(slot) === normalizedTime
+        normalizeTime(slot) ===
+        normalizedTime
     );
 
   if (!selectedSlotExists) {
@@ -381,7 +402,9 @@ async function validateSelectedSlot(
     };
   }
 
-  return { ok: true };
+  return {
+    ok: true,
+  };
 }
 
 async function resolveServices(
@@ -712,6 +735,7 @@ export async function POST(
     if (
       !payload.customer_name ||
       !payload.mobile_number ||
+      !payload.email ||
       !payload.preferred_date ||
       !payload.preferred_time ||
       !payload.terms_accepted ||
@@ -752,7 +776,9 @@ export async function POST(
         payload.preferred_time
       );
 
-    if (!normalizedPreferredTime) {
+    if (
+      !normalizedPreferredTime
+    ) {
       return NextResponse.json(
         {
           error:
@@ -1283,6 +1309,14 @@ export async function POST(
               120
             ),
 
+          email:
+            String(
+              payload.email
+            ).slice(
+              0,
+              254
+            ),
+
           mobile_number:
             String(
               payload.mobile_number
@@ -1553,6 +1587,7 @@ export async function POST(
               {
                 contentType:
                   document.file.type,
+
                 upsert:
                   false,
               }
@@ -1573,9 +1608,12 @@ export async function POST(
             .insert({
               booking_id:
                 booking.id,
+
               bucket:
                 "nail-inspiration",
+
               path,
+
               kind:
                 document.kind,
             });
@@ -1649,6 +1687,7 @@ export async function PATCH(
         reference_code,
         access_token,
         customer_name,
+        email,
         mobile_number,
         social_handle,
         preferred_date,

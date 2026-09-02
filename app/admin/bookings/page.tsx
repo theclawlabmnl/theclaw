@@ -141,7 +141,7 @@ export default async function Bookings({
         </div>
 
         <Link
-          href="/admin/calendar"
+          href="/admin/bookings/calendar"
           className="btn secondary bookings-calendar-btn"
         >
           View calendar
@@ -186,7 +186,9 @@ export default async function Bookings({
 
         <div className="bookings-count">
           {bookings.length}{" "}
-          {bookings.length === 1 ? "booking" : "bookings"}
+          {bookings.length === 1
+            ? "booking"
+            : "bookings"}
         </div>
       </div>
 
@@ -234,11 +236,15 @@ export default async function Bookings({
                   </span>
 
                   <strong>
-                    {formatDate(booking.preferred_date)}
+                    {formatDate(
+                      booking.preferred_date
+                    )}
                   </strong>
 
                   <span className="booking-time">
-                    {formatTime12(booking.preferred_time)}
+                    {formatTime12(
+                      booking.preferred_time
+                    )}
                   </span>
                 </div>
 
@@ -259,8 +265,14 @@ export default async function Bookings({
                     Status
                   </span>
 
-                  <span className={statusClass(booking.status)}>
-                    {statusLabel(booking.status)}
+                  <span
+                    className={statusClass(
+                      booking.status
+                    )}
+                  >
+                    {statusLabel(
+                      booking.status
+                    )}
                   </span>
                 </div>
 

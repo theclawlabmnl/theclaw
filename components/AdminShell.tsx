@@ -13,18 +13,28 @@ export default function AdminShell({
           <div className="admin-brand-mark">CL</div>
 
           <div>
-            <div className="admin-brand-name">The Claw Lab</div>
-            <div className="admin-brand-subtitle">MNL Admin</div>
+            <div className="admin-brand-name">
+              The Claw Lab
+            </div>
+
+            <div className="admin-brand-subtitle">
+              MNL Admin
+            </div>
           </div>
         </div>
 
-        <div className="admin-sidebar-label">Workspace</div>
+        <div className="admin-sidebar-label">
+          Workspace
+        </div>
 
         <AdminNav />
 
         <div className="admin-sidebar-bottom">
           <div className="admin-sidebar-user">
-            <div className="admin-user-avatar">A</div>
+            <div className="admin-user-avatar">
+              A
+            </div>
+
             <div>
               <strong>Administrator</strong>
               <span>Dashboard access</span>

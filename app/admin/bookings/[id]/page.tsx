@@ -2,10 +2,8 @@ export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { formatDate, peso } from "@/lib/utils";
-
 import BookingActions from "@/components/BookingActions";
 import BookingPaymentActions from "@/components/BookingPaymentActions";
 
@@ -118,13 +116,11 @@ export default async function BookingDetail({
   params,
 }: PageProps) {
   const { id } = await params;
-
   const db = supabaseAdmin();
 
   /*
    * BOOKING
    */
-
   const { data: booking, error } = await db
     .from("bookings")
     .select("*, booking_services(*)")
@@ -138,7 +134,6 @@ export default async function BookingDetail({
   /*
    * CUSTOMER UPLOADS
    */
-
   const { data: files } = await db
     .from("booking_files")
     .select(
@@ -165,7 +160,6 @@ export default async function BookingDetail({
   /*
    * PAYMENT PROOFS
    */
-
   const { data: paymentProofRows } = await db
     .from("payment_proofs")
     .select(
@@ -192,7 +186,6 @@ export default async function BookingDetail({
   /*
    * PAYMENTS
    */
-
   const { data: payments } = await db
     .from("payments")
     .select(`
@@ -217,9 +210,9 @@ export default async function BookingDetail({
   /*
    * DISCOUNT
    */
-
   const discountName = booking.promo_name || "";
   const discountSelected = Boolean(discountName);
+
   const discountVerified = Boolean(
     booking.discount_verified
   );
@@ -227,7 +220,6 @@ export default async function BookingDetail({
   /*
    * ORIGINAL TOTAL
    */
-
   const baseTotal = Number(
     booking.estimated_total || 0
   );
@@ -235,7 +227,6 @@ export default async function BookingDetail({
   /*
    * CURRENT DISCOUNT
    */
-
   const discountAmount =
     discountSelected && discountVerified
       ? Number((baseTotal * 0.05).toFixed(2))
@@ -244,7 +235,6 @@ export default async function BookingDetail({
   /*
    * FINAL TOTAL
    */
-
   const finalTotal = Math.max(
     0,
     baseTotal - discountAmount
@@ -253,7 +243,6 @@ export default async function BookingDetail({
   /*
    * PAYMENT TOTALS
    */
-
   const paymentRows = payments || [];
 
   const verifiedPayments =
@@ -262,7 +251,6 @@ export default async function BookingDetail({
   /*
    * VERIFIED DOWN PAYMENT
    */
-
   const verifiedDownPayment = verifiedPayments
     .filter(
       (payment) =>
@@ -278,7 +266,6 @@ export default async function BookingDetail({
   /*
    * VERIFIED BALANCE PAYMENTS
    */
-
   const verifiedBalancePaid = verifiedPayments
     .filter(
       (payment) =>
@@ -293,7 +280,6 @@ export default async function BookingDetail({
   /*
    * VERIFIED TIPS
    */
-
   const verifiedTips = verifiedPayments
     .filter(
       (payment) =>
@@ -308,7 +294,6 @@ export default async function BookingDetail({
   /*
    * VERIFIED ADDITIONAL CHARGES
    */
-
   const verifiedAdditionalCharges =
     verifiedPayments
       .filter(
@@ -325,7 +310,6 @@ export default async function BookingDetail({
   /*
    * VERIFIED OTHER PAYMENTS
    */
-
   const verifiedOther = verifiedPayments
     .filter(
       (payment) =>
@@ -340,7 +324,6 @@ export default async function BookingDetail({
   /*
    * REMAINING BOOKING BALANCE
    */
-
   const remaining = Math.max(
     0,
     finalTotal -
@@ -351,7 +334,6 @@ export default async function BookingDetail({
   /*
    * PAYMENT ACCOUNTING
    */
-
   const verifiedGrossPayments =
     verifiedPayments.reduce(
       (sum, payment) =>
@@ -389,7 +371,6 @@ export default async function BookingDetail({
   /*
    * FILE GROUPS
    */
-
   const inspiration = signedFiles.filter(
     (file) => file.kind === "inspiration"
   );
@@ -409,7 +390,6 @@ export default async function BookingDetail({
   return (
     <div className="admin-page booking-detail-page">
       {/* HEADER */}
-
       <header className="booking-detail-header">
         <div>
           <div className="kicker">
@@ -438,7 +418,6 @@ export default async function BookingDetail({
       </header>
 
       {/* CUSTOMER SUMMARY */}
-
       <section className="booking-summary-card">
         <div className="booking-summary-main">
           <div className="booking-avatar">
@@ -477,10 +456,8 @@ export default async function BookingDetail({
 
       <div className="booking-detail-layout">
         {/* MAIN */}
-
         <main className="booking-detail-content">
           {/* APPOINTMENT */}
-
           <section className="admin-detail-card">
             <div className="section-label">
               Appointment
@@ -559,7 +536,6 @@ export default async function BookingDetail({
           </section>
 
           {/* REQUEST DETAILS */}
-
           <section className="admin-detail-card">
             <div className="section-label">
               Request details
@@ -616,7 +592,6 @@ export default async function BookingDetail({
           </section>
 
           {/* DISCOUNT VERIFICATION */}
-
           <section className="admin-detail-card">
             <div className="section-label">
               Discount verification
@@ -748,7 +723,6 @@ export default async function BookingDetail({
           </section>
 
           {/* NAIL INSPIRATION */}
-
           <section className="admin-detail-card">
             <div className="section-label">
               Nail inspiration
@@ -810,7 +784,6 @@ export default async function BookingDetail({
           </section>
 
           {/* DISCOUNT DOCUMENTS */}
-
           <section className="admin-detail-card">
             <div className="section-label">
               Discount verification
@@ -895,7 +868,6 @@ export default async function BookingDetail({
           </section>
 
           {/* PAYMENT PROOF */}
-
           <section className="admin-detail-card payment-proof-section">
             <div className="section-label">
               Payment proof
@@ -959,10 +931,26 @@ export default async function BookingDetail({
                 yet.
               </div>
             )}
+
+            <div
+              style={{
+                marginTop: 14,
+              }}
+            >
+              <Link
+                href="/admin/payments"
+                className="btn secondary"
+                style={{
+                  width: "100%",
+                  textAlign: "center",
+                }}
+              >
+                View Payment Transactions & Verification →
+              </Link>
+            </div>
           </section>
 
           {/* CANCELLATION */}
-
           {booking.status === "cancelled" && (
             <section className="admin-detail-card">
               <div className="section-label">
@@ -1013,7 +1001,6 @@ export default async function BookingDetail({
           )}
 
           {/* PAYMENT HISTORY — ALWAYS LAST */}
-
           <section className="admin-detail-card">
             <div
               style={{
@@ -1057,7 +1044,6 @@ export default async function BookingDetail({
             </div>
 
             {/* PAYMENT SUMMARY */}
-
             <div
               style={{
                 display: "grid",
@@ -1207,7 +1193,6 @@ export default async function BookingDetail({
             </div>
 
             {/* ACCOUNTING SUMMARY */}
-
             {verifiedPayments.length > 0 && (
               <div
                 style={{
@@ -1297,7 +1282,6 @@ export default async function BookingDetail({
             )}
 
             {/* TRANSACTIONS */}
-
             <div
               style={{
                 marginTop: 20,
@@ -1531,7 +1515,6 @@ export default async function BookingDetail({
         </main>
 
         {/* SIDEBAR */}
-
         <aside className="booking-detail-sidebar">
           <section className="booking-control-card">
             <div className="section-label">
@@ -1543,7 +1526,6 @@ export default async function BookingDetail({
             </span>
 
             {/* ORIGINAL TOTAL */}
-
             <div className="total-block">
               <span className="muted">
                 Original Total
@@ -1555,7 +1537,6 @@ export default async function BookingDetail({
             </div>
 
             {/* DISCOUNT */}
-
             <div className="balance-row">
               <span>Discount</span>
 
@@ -1569,7 +1550,6 @@ export default async function BookingDetail({
             </div>
 
             {/* DOWN PAYMENT */}
-
             <div className="balance-row">
               <span>Down Payment</span>
 
@@ -1581,7 +1561,6 @@ export default async function BookingDetail({
             </div>
 
             {/* BALANCE PAID */}
-
             <div className="balance-row">
               <span>Balance Paid</span>
 
@@ -1593,7 +1572,6 @@ export default async function BookingDetail({
             </div>
 
             {/* FINAL TOTAL */}
-
             <div className="balance-row">
               <span>Final Total</span>
 
@@ -1603,7 +1581,6 @@ export default async function BookingDetail({
             </div>
 
             {/* REMAINING */}
-
             <div className="balance-row">
               <span>Remaining</span>
 
@@ -1615,22 +1592,12 @@ export default async function BookingDetail({
             <div className="control-divider" />
 
             {/* BOOKING STATUS CONTROLS */}
-
             <BookingActions
               id={booking.id}
               status={booking.status}
             />
 
-            {/* PAYMENT / BUSINESS ACTIONS */}
-
-            {booking.access_token && (
-              <BookingPaymentActions
-                token={booking.access_token}
-              />
-            )}
-
-            {/* EDIT BOOKING */}
-
+            {/* EDIT BOOKING — ABOVE PAYMENT ACTIONS */}
             <Link
               href={`/admin/bookings/${booking.id}/edit`}
               className="btn secondary"
@@ -1642,6 +1609,13 @@ export default async function BookingDetail({
             >
               Edit Booking
             </Link>
+
+            {/* PAYMENT / BUSINESS ACTIONS */}
+            {booking.access_token && (
+              <BookingPaymentActions
+                token={booking.access_token}
+              />
+            )}
           </section>
         </aside>
       </div>

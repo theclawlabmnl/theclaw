@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { notifyBookingCompleted } from "@/lib/notifications";
 
 const RESET_STATUSES = [
   "pending",
@@ -41,15 +42,15 @@ const PAYMENT_METHODS = [
  * The timer starts from approved_at,
  * NOT from the original booking request.
  */
- const PAYMENT_DEADLINE_HOURS = 3;
+const PAYMENT_DEADLINE_HOURS = 3;
 
- const PAYMENT_DEADLINE_MS =
+const PAYMENT_DEADLINE_MS =
   PAYMENT_DEADLINE_HOURS * 60 * 60 * 1000;
 
- const PAYMENT_DEADLINE_REASON =
+const PAYMENT_DEADLINE_REASON =
   "Payment deadline expired";
 
- const PAYMENT_DEADLINE_NOTE =
+const PAYMENT_DEADLINE_NOTE =
   "Booking was automatically cancelled because payment was not submitted within 3 hours of approval.";
 
 async function getAdminDb() {
@@ -88,7 +89,7 @@ function jsonError(error: string, status = 400) {
  * Returns the payment deadline for an
  * approved booking.
  */
- function getPaymentDeadline(
+function getPaymentDeadline(
   approvedAt: string | null | undefined
 ): Date | null {
   if (!approvedAt) {
@@ -110,7 +111,7 @@ function jsonError(error: string, status = 400) {
  * Checks whether an approved booking's
  * payment deadline has passed.
  */
- function isPaymentDeadlineExpired(
+function isPaymentDeadlineExpired(
   approvedAt: string | null | undefined,
   now = new Date()
 ): boolean {
@@ -147,7 +148,7 @@ function jsonError(error: string, status = 400) {
  *
  * will NOT be cancelled.
  */
- async function expireOverdueApprovedBookings(
+async function expireOverdueApprovedBookings(
   db: ReturnType<typeof supabaseAdmin>,
   now = new Date()
 ) {
@@ -206,8 +207,7 @@ function jsonError(error: string, status = 400) {
    */
   const {
     data: cancelledBookings,
-    error:
-      cancellationError,
+    error: cancellationError,
   } = await db
     .from("bookings")
     .update({
@@ -1724,6 +1724,10 @@ export async function PATCH(
 
     /*
      * NORMAL BOOKING LOOKUP
+     *
+     * Email is included here because the
+     * completed notification needs the
+     * customer's email address.
      */
     const {
       data: booking,
@@ -1731,7 +1735,7 @@ export async function PATCH(
     } = await db
       .from("bookings")
       .select(
-        "id,status,reference_code,promo_name,estimated_total,discount_verified,approved_at"
+        "id,status,reference_code,customer_name,email,promo_name,estimated_total,discount_verified,approved_at"
       )
       .eq("id", id)
       .single();
@@ -1751,6 +1755,177 @@ export async function PATCH(
 
     const nowIso =
       now.toISOString();
+
+    /*
+     * ADMIN OVERRIDE
+     *
+     * Emergency-only status correction.
+     * This intentionally bypasses the normal
+     * booking workflow transitions.
+     */
+    if (action === "admin_override") {
+      const overrideStatus =
+        String(
+          body.status || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const ADMIN_OVERRIDE_STATUSES = [
+        "pending",
+        "approved",
+        "payment_submitted",
+        "confirmed",
+        "completed",
+        "cancelled",
+        "rejected",
+      ] as const;
+
+      if (
+        !ADMIN_OVERRIDE_STATUSES.includes(
+          overrideStatus as (
+            typeof ADMIN_OVERRIDE_STATUSES
+          )[number]
+        )
+      ) {
+        return jsonError(
+          "Invalid admin override status."
+        );
+      }
+
+      if (
+        booking.status ===
+        overrideStatus
+      ) {
+        return jsonError(
+          "Booking is already in that status."
+        );
+      }
+
+      const patch: Record<
+        string,
+        unknown
+      > = {
+        status:
+          overrideStatus,
+      };
+
+      /*
+       * If the admin forces the booking
+       * back to approved, restart the
+       * 3-hour payment timer from now.
+       */
+      if (
+        overrideStatus ===
+        "approved"
+      ) {
+        patch.approved_at =
+          nowIso;
+      }
+
+      /*
+       * Record the appropriate milestone
+       * timestamp when forcing a booking
+       * forward.
+       */
+      if (
+        overrideStatus ===
+        "confirmed"
+      ) {
+        patch.confirmed_at =
+          nowIso;
+      }
+
+      if (
+        overrideStatus ===
+        "completed"
+      ) {
+        patch.completed_at =
+          nowIso;
+      }
+
+      /*
+       * A forced cancellation gets a clear
+       * internal cancellation record.
+       */
+      if (
+        overrideStatus ===
+        "cancelled"
+      ) {
+        patch.cancelled_at =
+          nowIso;
+
+        patch.cancellation_reason =
+          "Other";
+
+        patch.cancellation_note =
+          "Booking status changed by admin emergency override.";
+      } else {
+        /*
+         * If recovering a cancelled booking,
+         * remove the cancellation state.
+         */
+        patch.cancelled_at =
+          null;
+
+        patch.cancellation_reason =
+          null;
+
+        patch.cancellation_note =
+          null;
+      }
+
+      const { error } =
+        await db
+          .from("bookings")
+          .update(patch)
+          .eq("id", id);
+
+      if (error) {
+        throw error;
+      }
+
+      /*
+       * If Admin Override moves a booking
+       * directly to COMPLETED, send the same
+       * customer completion/review email.
+       *
+       * Notification failure must NOT undo
+       * the successful status change.
+       */
+      if (
+        overrideStatus ===
+        "completed"
+      ) {
+        try {
+          await notifyBookingCompleted({
+            booking: {
+              id:
+                booking.id,
+              reference_code:
+                booking.reference_code,
+              customer_name:
+                booking.customer_name,
+              email:
+                booking.email,
+            },
+          });
+        } catch (
+          notificationError
+        ) {
+          console.error(
+            "Completed booking customer email failed:",
+            notificationError
+          );
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        status:
+          overrideStatus,
+      });
+    }
 
     /*
      * APPROVE
@@ -1973,7 +2148,8 @@ export async function PATCH(
      * RESET
      */
     if (
-      action === "reset"
+      action ===
+      "reset"
     ) {
       const resetStatus =
         String(
@@ -2261,6 +2437,35 @@ export async function PATCH(
 
       if (error) {
         throw error;
+      }
+
+      /*
+       * Send the customer their completion
+       * email with the review link.
+       *
+       * Notification failure must NOT cause
+       * the completed status update to fail.
+       */
+      try {
+        await notifyBookingCompleted({
+          booking: {
+            id:
+              booking.id,
+            reference_code:
+              booking.reference_code,
+            customer_name:
+              booking.customer_name,
+            email:
+              booking.email,
+          },
+        });
+      } catch (
+        notificationError
+      ) {
+        console.error(
+          "Completed booking customer email failed:",
+          notificationError
+        );
       }
 
       const reviewUrl =

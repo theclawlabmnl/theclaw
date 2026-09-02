@@ -15,6 +15,7 @@ type Booking = {
   id: string;
   reference_code: string;
   customer_name: string;
+  access_token: string;
 };
 
 type ExistingReview = {
@@ -26,121 +27,79 @@ type ExistingReview = {
 };
 
 export default function ReviewPage() {
-  const searchParams =
-    useSearchParams();
+  const searchParams = useSearchParams();
 
-  const bookingId =
-    searchParams.get(
-      "booking_id"
-    );
-
-  const [
-    booking,
-    setBooking,
-  ] = useState<Booking | null>(
-    null
+  const bookingId = searchParams.get(
+    "booking_id"
   );
 
-  const [
-    existingReview,
-    setExistingReview,
-  ] =
-    useState<ExistingReview | null>(
-      null
-    );
+  const [booking, setBooking] =
+    useState<Booking | null>(null);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [existingReview, setExistingReview] =
+    useState<ExistingReview | null>(null);
 
-  const [
-    submitting,
-    setSubmitting,
-  ] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [
-    submitted,
-    setSubmitted,
-  ] = useState(false);
+  const [submitting, setSubmitting] =
+    useState(false);
 
-  const [
-    error,
-    setError,
-  ] = useState("");
+  const [submitted, setSubmitted] =
+    useState(false);
 
-  const [
-    rating,
-    setRating,
-  ] = useState(0);
+  const [error, setError] =
+    useState("");
 
-  const [
-    hoverRating,
-    setHoverRating,
-  ] = useState(0);
+  const [rating, setRating] =
+    useState(0);
 
-  const [
-    reviewText,
-    setReviewText,
-  ] = useState("");
+  const [hoverRating, setHoverRating] =
+    useState(0);
 
-  const [
-    publicConsent,
-    setPublicConsent,
-  ] = useState(false);
+  const [reviewText, setReviewText] =
+    useState("");
 
-  const [
-    photo,
-    setPhoto,
-  ] = useState<File | null>(
-    null
-  );
+  const [publicConsent, setPublicConsent] =
+    useState(false);
+
+  const [photo, setPhoto] =
+    useState<File | null>(null);
 
   useEffect(() => {
     if (!bookingId) {
       setError("No booking was specified.");
-       setLoading(false);
-       return;
-}
-const validBookingId = bookingId;
+      setLoading(false);
+      return;
+    }
+
+    const validBookingId = bookingId;
 
     async function load() {
       try {
         const response = await fetch(
-            `/api/reviews?booking_id=${encodeURIComponent(validBookingId)}`
-    );
+          `/api/reviews?booking_id=${encodeURIComponent(
+            validBookingId
+          )}`
+        );
 
+        const data = await response
+          .json()
+          .catch(() => ({}));
 
-        const data =
-          await response
-            .json()
-            .catch(
-              () => ({})
-            );
-
-        if (
-          !response.ok
-        ) {
+        if (!response.ok) {
           throw new Error(
             data?.error ||
               "Unable to load review."
           );
         }
 
-        setBooking(
-          data.booking
-        );
+        setBooking(data.booking);
 
-        if (
-          data.already_reviewed
-        ) {
-          setExistingReview(
-            data.review
-          );
+        if (data.already_reviewed) {
+          setExistingReview(data.review);
         }
-      } catch (
-        loadError: any
-      ) {
+      } catch (loadError: any) {
         setError(
           loadError?.message ||
             "Unable to load review."
@@ -156,8 +115,7 @@ const validBookingId = bookingId;
   function handlePhoto(
     event: ChangeEvent<HTMLInputElement>
   ) {
-    const file =
-      event.target.files?.[0];
+    const file = event.target.files?.[0];
 
     if (!file) {
       setPhoto(null);
@@ -178,7 +136,6 @@ const validBookingId = bookingId;
       setError(
         "No booking was specified."
       );
-
       return;
     }
 
@@ -186,7 +143,6 @@ const validBookingId = bookingId;
       setError(
         "Please select a star rating."
       );
-
       return;
     }
 
@@ -194,15 +150,13 @@ const validBookingId = bookingId;
       setError(
         "Please tell us about your experience."
       );
-
       return;
     }
 
     setSubmitting(true);
 
     try {
-      const formData =
-        new FormData();
+      const formData = new FormData();
 
       formData.append(
         "booking_id",
@@ -211,8 +165,7 @@ const validBookingId = bookingId;
 
       formData.append(
         "customer_name",
-        booking?.customer_name ||
-          ""
+        booking?.customer_name || ""
       );
 
       formData.append(
@@ -227,9 +180,7 @@ const validBookingId = bookingId;
 
       formData.append(
         "public_consent",
-        String(
-          publicConsent
-        )
+        String(publicConsent)
       );
 
       if (photo) {
@@ -239,25 +190,19 @@ const validBookingId = bookingId;
         );
       }
 
-      const response =
-        await fetch(
-          "/api/reviews",
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
+      const response = await fetch(
+        "/api/reviews",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
-      const data =
-        await response
-          .json()
-          .catch(
-            () => ({})
-          );
+      const data = await response
+        .json()
+        .catch(() => ({}));
 
-      if (
-        !response.ok
-      ) {
+      if (!response.ok) {
         throw new Error(
           data?.error ||
             "Unable to submit review."
@@ -265,9 +210,7 @@ const validBookingId = bookingId;
       }
 
       setSubmitted(true);
-    } catch (
-      submitError: any
-    ) {
+    } catch (submitError: any) {
       setError(
         submitError?.message ||
           "Unable to submit review."
@@ -277,112 +220,359 @@ const validBookingId = bookingId;
     }
   }
 
+  /*
+   * LOADING
+   */
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#faf7f4] px-4 py-12">
-        <div className="mx-auto max-w-xl">
-          <div className="rounded-3xl border border-black/10 bg-white p-8 text-center">
-            Loading…
+      <main className="status-page">
+        <div className="status-page-inner">
+          <div className="status-card">
+
+            <div className="status-brand">
+              The Claw Lab MNL
+            </div>
+
+            <div className="status-header">
+              <h1>
+                Review
+              </h1>
+            </div>
+
+            <div className="status-pill status-pill-pending">
+              <span className="status-pill-dot" />
+              Loading
+            </div>
+
+            <div className="status-message">
+              <h2>
+                Loading your review form…
+              </h2>
+
+              <p>
+                Please wait a moment.
+              </p>
+            </div>
+
           </div>
         </div>
       </main>
     );
   }
 
+  /*
+   * ERROR
+   */
   if (error && !booking) {
     return (
-      <main className="min-h-screen bg-[#faf7f4] px-4 py-12">
-        <div className="mx-auto max-w-xl">
-          <div className="rounded-3xl border border-red-200 bg-white p-8 text-center">
-            <h1 className="font-serif text-2xl">
-              Oops ♡
-            </h1>
+      <main className="status-page">
+        <div className="status-page-inner">
+          <div className="status-card">
 
-            <p className="mt-3 text-sm text-red-700">
-              {error}
-            </p>
+            <div className="status-brand">
+              The Claw Lab MNL
+            </div>
+
+            <div className="status-header">
+              <h1>
+                Review
+              </h1>
+            </div>
+
+            <div className="status-pill status-pill-cancelled">
+              <span className="status-pill-dot" />
+              Unable to Continue
+            </div>
+
+            <div className="status-message">
+              <h2>
+                Oops ♡
+              </h2>
+
+              <p>
+                {error}
+              </p>
+            </div>
+
+            <div className="status-action">
+              <a
+                href="/status"
+                className="status-primary-button"
+              >
+                Check Booking Status
+              </a>
+            </div>
+
+            <div className="status-contact">
+              <p>
+                Need help? Message us.
+              </p>
+
+              <div className="status-contact-links">
+
+                <a
+                  href="https://instagram.com/theclawlabmnl"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Instagram
+                </a>
+
+                <a
+                  href="https://m.me/theclawlabmnl"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Messenger
+                </a>
+
+              </div>
+            </div>
+
           </div>
         </div>
       </main>
     );
   }
 
+  /*
+   * ALREADY REVIEWED / JUST SUBMITTED
+   */
   if (
     existingReview ||
     submitted
   ) {
     return (
-      <main className="min-h-screen bg-[#faf7f4] px-4 py-12">
-        <div className="mx-auto max-w-xl">
-          <div className="rounded-3xl border border-black/10 bg-white p-8 text-center sm:p-10">
-            <div className="text-4xl">
-              ♡
+      <main className="status-page">
+        <div className="status-page-inner">
+          <div className="status-card">
+
+            <div className="status-brand">
+              The Claw Lab MNL
             </div>
 
-            <h1 className="mt-4 font-serif text-3xl">
-              Thank you!
-            </h1>
+            <div className="status-header">
+              <h1>
+                Review
+              </h1>
+            </div>
 
-            <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-black/60">
-              Your review has been
-              submitted and is now
-              awaiting approval.
-            </p>
+            <div className="status-pill status-pill-completed">
+              <span className="status-pill-dot" />
+              Thank You
+            </div>
 
-            <p className="mt-6 text-xs uppercase tracking-[0.18em] text-black/40">
-              {booking?.reference_code}
-            </p>
+            <div className="status-message">
+              <h2>
+                Thank you! ♡
+              </h2>
+
+              <p>
+                Your review has been submitted
+                and is now awaiting approval.
+                We truly appreciate you taking
+                the time to share your experience
+                with The Claw Lab MNL.
+              </p>
+            </div>
+
+            {booking && (
+              <section className="status-summary">
+
+                <div className="status-summary-title">
+                  Booking Summary
+                </div>
+
+                <div className="status-summary-grid">
+
+                  <div className="status-summary-item">
+                    <span>
+                      Client
+                    </span>
+
+                    <strong>
+                      {booking.customer_name || "—"}
+                    </strong>
+                  </div>
+
+                  <div className="status-summary-item">
+                    <span>
+                      Reference
+                    </span>
+
+                    <strong>
+                      {booking.reference_code || "—"}
+                    </strong>
+                  </div>
+
+                </div>
+
+              </section>
+            )}
+
+            <div className="status-action">
+
+              <a
+                href={
+                  booking
+                    ? `/status/${booking.access_token}`
+                    : "/status"
+                }
+                className="status-primary-button"
+              >
+                Back to Booking Status
+              </a>
+
+            </div>
+
+            <div className="status-contact">
+              <p>
+                Thank you for supporting
+                The Claw Lab MNL. ♡
+              </p>
+            </div>
+
           </div>
         </div>
       </main>
     );
   }
 
+  /*
+   * REVIEW FORM
+   */
   return (
-    <main className="min-h-screen bg-[#faf7f4] px-4 py-8 sm:py-12">
-      <div className="mx-auto w-full max-w-xl">
-        <div className="rounded-3xl border border-black/10 bg-white p-5 sm:p-8">
-          <div className="text-center">
-            <p className="text-xs uppercase tracking-[0.2em] text-black/40">
-              The Claw Lab
-            </p>
+    <main className="status-page">
+      <div className="status-page-inner">
 
-            <h1 className="mt-3 font-serif text-3xl sm:text-4xl">
-              How was your Claw Lab
-              experience? ♡
-            </h1>
+        <div className="status-card">
 
-            {booking && (
-              <p className="mt-3 text-sm text-black/50">
-                Hi{" "}
-                {booking.customer_name}.
-                We’d love to hear
-                from you.
-              </p>
-            )}
+          {/* BRAND */}
+          <div className="status-brand">
+            The Claw Lab MNL
           </div>
 
-          {error && (
-            <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
+          {/* HEADER */}
+          <div className="status-header">
+            <h1>
+              Leave a Review
+            </h1>
+          </div>
+
+          {/* STATUS */}
+          <div className="status-pill status-pill-completed">
+            <span className="status-pill-dot" />
+            Appointment Completed
+          </div>
+
+          {/* MESSAGE */}
+          <div className="status-message">
+
+            <h2>
+              Hi <strong>{booking?.customer_name}!</strong> How was your Claw Lab
+              experience? ♡
+            </h2>
+
+          </div>
+
+          {/* BOOKING SUMMARY */}
+          {booking && (
+            <section className="status-summary">
+
+              <div className="status-summary-title">
+                Booking Summary
+              </div>
+
+              <div className="status-summary-grid">
+
+                <div className="status-summary-item">
+                  <span>
+                    Client
+                  </span>
+
+                  <strong>
+                    {booking.customer_name || "—"}
+                  </strong>
+                </div>
+
+                <div className="status-summary-item">
+                  <span>
+                    Reference
+                  </span>
+
+                  <strong>
+                    {booking.reference_code || "—"}
+                  </strong>
+                </div>
+
+              </div>
+
+            </section>
           )}
 
+          {/* FORM */}
           <form
             onSubmit={submit}
-            className="mt-8 space-y-7"
+            style={{
+              marginTop: "24px",
+            }}
           >
-            <div>
-              <label className="block text-sm font-medium">
-                Your rating
-              </label>
+
+            {/* ERROR */}
+            {error && (
+              <div
+                style={{
+                  marginBottom: "18px",
+                  padding: "11px 13px",
+                  borderRadius: "8px",
+                  border:
+                    "1px solid rgba(190, 50, 50, 0.35)",
+                  background:
+                    "rgba(190, 50, 50, 0.07)",
+                  color: "#000",
+                  fontSize: "12px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            {/* RATING */}
+            <section
+              style={{
+                paddingBottom: "22px",
+                borderBottom:
+                  "1px solid var(--line)",
+              }}
+            >
 
               <div
-                className="mt-3 flex justify-center gap-1 sm:justify-start"
+                className="status-summary-title"
+              >
+                Your Rating
+              </div>
+
+              <p
+                className="muted"
+                style={{
+                  marginTop: "5px",
+                  marginBottom: "10px",
+                  fontSize: "13px",
+                }}
+              >
+                Tap the stars to rate your
+                experience.
+              </p>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}
                 onMouseLeave={() =>
-                  setHoverRating(
-                    0
-                  )
+                  setHoverRating(0)
                 }
               >
                 {[1, 2, 3, 4, 5].map(
@@ -411,11 +601,24 @@ const validBookingId = bookingId;
                             star
                           )
                         }
-                        className={`text-4xl leading-none transition-transform hover:scale-110 ${
-                          active
-                            ? "text-black"
-                            : "text-black/15"
-                        }`}
+                        style={{
+                          border: "none",
+                          background:
+                            "transparent",
+                          padding:
+                            "2px 3px",
+                          margin: 0,
+                          cursor:
+                            "pointer",
+                          fontSize:
+                            "32px",
+                          lineHeight: 1,
+                          color: active
+                            ? "#000"
+                            : "rgba(0,0,0,0.15)",
+                          transition:
+                            "transform 0.15s ease",
+                        }}
                       >
                         ★
                       </button>
@@ -423,12 +626,52 @@ const validBookingId = bookingId;
                   }
                 )}
               </div>
-            </div>
 
-            <div>
+              {rating > 0 && (
+                <p
+                  className="muted"
+                  style={{
+                    marginTop: "7px",
+                    fontSize: "12px",
+                  }}
+                >
+                  {rating === 5
+                    ? "We’re so glad you loved it! ♡"
+                    : rating === 4
+                    ? "Thank you for the lovely feedback. ♡"
+                    : rating === 3
+                    ? "Thank you for sharing your experience."
+                    : rating === 2
+                    ? "Thank you. We’d love to improve."
+                    : "Thank you for being honest with us."}
+                </p>
+              )}
+
+            </section>
+
+            {/* REVIEW TEXT */}
+            <section
+              style={{
+                padding:
+                  "22px 0",
+                borderBottom:
+                  "1px solid var(--line)",
+              }}
+            >
+
+              <div className="status-summary-title">
+                Your Experience
+              </div>
+
               <label
                 htmlFor="review"
-                className="block text-sm font-medium"
+                style={{
+                  display: "block",
+                  marginTop: "6px",
+                  marginBottom: "8px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                }}
               >
                 Tell us about your
                 experience
@@ -439,93 +682,277 @@ const validBookingId = bookingId;
                 value={reviewText}
                 onChange={(event) =>
                   setReviewText(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
-                maxLength={
-                  2000
-                }
+                maxLength={2000}
                 rows={6}
                 placeholder="What did you love about your appointment?"
-                className="mt-2 w-full max-w-full resize-y rounded-2xl border border-black/10 px-4 py-3 text-sm outline-none transition focus:border-black/30"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  maxWidth: "100%",
+                  minHeight: "140px",
+                  boxSizing:
+                    "border-box",
+                  resize: "vertical",
+                  border:
+                    "1px solid var(--line)",
+                  borderRadius: "8px",
+                  padding:
+                    "12px 13px",
+                  background:
+                    "#fff",
+                  color: "#000",
+                  fontSize:
+                    "13px",
+                  lineHeight:
+                    1.55,
+                  outline:
+                    "none",
+                }}
               />
 
-              <p className="mt-1 text-right text-xs text-black/40">
-                {
-                  reviewText.length
-                }
-                /2000
+              <p
+                className="muted"
+                style={{
+                  marginTop: "5px",
+                  textAlign: "right",
+                  fontSize: "11px",
+                }}
+              >
+                {reviewText.length}/2000
               </p>
-            </div>
 
-            <div>
+            </section>
+
+            {/* PHOTO */}
+            <section
+              style={{
+                padding:
+                  "22px 0",
+                borderBottom:
+                  "1px solid var(--line)",
+              }}
+            >
+
+              <div className="status-summary-title">
+                Nail Photo
+              </div>
+
+              <p
+                className="muted"
+                style={{
+                  marginTop: "5px",
+                  marginBottom: "10px",
+                  fontSize: "13px",
+                  lineHeight: 1.5,
+                }}
+              >
+                Have a photo of your nails?
+                You can share it with us.
+                <span
+                  style={{
+                    marginLeft: "5px",
+                    opacity: 0.55,
+                  }}
+                >
+                  Optional
+                </span>
+              </p>
+
               <label
                 htmlFor="nail-photo"
-                className="block text-sm font-medium"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  boxSizing:
+                    "border-box",
+                  padding:
+                    "12px 13px",
+                  border:
+                    "1px solid var(--line)",
+                  borderRadius: "8px",
+                  background:
+                    "var(--soft)",
+                  cursor:
+                    "pointer",
+                  fontSize: "13px",
+                }}
               >
-                Upload a photo of
-                your nails
-                <span className="ml-1 font-normal text-black/40">
-                  optional
-                </span>
+                Choose Photo
               </label>
 
               <input
                 id="nail-photo"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                onChange={
-                  handlePhoto
-                }
-                className="mt-2 block w-full max-w-full rounded-2xl border border-black/10 p-3 text-sm"
+                onChange={handlePhoto}
+                style={{
+                  display: "none",
+                }}
               />
 
               {photo && (
-                <p className="mt-2 text-xs text-black/50">
+                <div
+                  style={{
+                    marginTop: "8px",
+                    padding:
+                      "9px 11px",
+                    border:
+                      "1px solid var(--line)",
+                    borderRadius:
+                      "7px",
+                    fontSize: "11px",
+                    color:
+                      "rgba(0,0,0,0.6)",
+                    overflow:
+                      "hidden",
+                    textOverflow:
+                      "ellipsis",
+                    whiteSpace:
+                      "nowrap",
+                  }}
+                >
                   {photo.name}
-                </p>
+                </div>
               )}
+
+            </section>
+
+            {/* PUBLIC CONSENT */}
+            <section
+              style={{
+                padding:
+                  "22px 0",
+              }}
+            >
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems:
+                    "flex-start",
+                  gap: "10px",
+                  padding:
+                    "12px 13px",
+                  border:
+                    "1px solid var(--line)",
+                  borderRadius: "8px",
+                  background:
+                    "var(--soft)",
+                  cursor:
+                    "pointer",
+                }}
+              >
+
+                <input
+                  type="checkbox"
+                  checked={
+                    publicConsent
+                  }
+                  onChange={(event) =>
+                    setPublicConsent(
+                      event.target.checked
+                    )
+                  }
+                  style={{
+                    marginTop:
+                      "2px",
+                    flexShrink: 0,
+                  }}
+                />
+
+                <span
+                  style={{
+                    fontSize: "12px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  I agree that The Claw
+                  Lab MNL may feature my
+                  review and/or photo
+                  publicly.
+                </span>
+
+              </label>
+
+            </section>
+
+            {/* SUBMIT */}
+            <div className="status-action">
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="status-primary-button"
+                style={{
+                  width: "100%",
+                  border: "none",
+                  cursor: submitting
+                    ? "not-allowed"
+                    : "pointer",
+                  opacity: submitting
+                    ? 0.55
+                    : 1,
+                }}
+              >
+                {submitting
+                  ? "Submitting…"
+                  : "Submit Review ♡"}
+              </button>
+
             </div>
 
-            <label className="flex items-start gap-3 rounded-2xl border border-black/10 bg-[#faf7f4] p-4">
-              <input
-                type="checkbox"
-                checked={
-                  publicConsent
-                }
-                onChange={(
-                  event
-                ) =>
-                  setPublicConsent(
-                    event.target
-                      .checked
-                  )
-                }
-                className="mt-0.5"
-              />
-
-              <span className="text-sm leading-5 text-black/70">
-                I agree that The
-                Claw Lab may feature
-                my review/photo
-                publicly.
-              </span>
-            </label>
-
-            <button
-              type="submit"
-              disabled={
-                submitting
-              }
-              className="w-full rounded-2xl bg-black px-5 py-3.5 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {submitting
-                ? "Submitting…"
-                : "Submit Review"}
-            </button>
           </form>
+
+          {/* CONTACT */}
+          <div className="status-contact">
+
+            <p>
+              Thank you for supporting
+              The Claw Lab MNL. ♡
+            </p>
+
+            <div className="status-contact-links">
+
+              <a
+                href="https://instagram.com/theclawlabmnl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Instagram
+              </a>
+
+              <a
+                href="https://m.me/theclawlabmnl"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Messenger
+              </a>
+
+            </div>
+
+          </div>
+
+          {/* FOOTER */}
+          <div className="status-footer">
+
+            <a
+              href={
+                booking
+                  ? `/status/${booking.access_token}`
+                  : "/status"
+              }
+            >
+              ← Back to Booking Status
+            </a>
+
+          </div>
+
         </div>
+
       </div>
     </main>
   );
