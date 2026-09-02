@@ -571,26 +571,20 @@ export default async function Home() {
           box-sizing: border-box;
         }
 
-       .home-header {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  width: 100%;
-  border-bottom: 1px solid var(--home-line);
-  background: rgba(250, 246, 242, 0.94);.home-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
-  width: 100%;
-  border-bottom: 1px solid var(--home-line);
-  background: rgba(250, 246, 242, 0.94);
-}
-  .claw-home {
-  padding-top: 72px;
-}
-}
+        .home-header {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          z-index: 9999;
+          width: 100%;
+          border-bottom: 1px solid var(--home-line);
+          background: rgba(250, 246, 242, 0.94);
+        }
+
+        .claw-home {
+          padding-top: 72px;
+        }
 
         .home-header-inner {
           width: 100%;
@@ -1183,8 +1177,9 @@ export default async function Home() {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 70px;
-          margin-top: 75px;
-          text-align: left;
+          max-width: 760px;
+          margin: 75px auto 0;
+          text-align: center;
         }
 
         .home-contact-grid > div {
@@ -1211,7 +1206,7 @@ export default async function Home() {
 
         .home-contact-grid p {
           max-width: 390px;
-          margin: 13px 0 0;
+          margin: 13px auto 0;
           color: var(--home-muted);
           font-size: 11px;
           line-height: 1.7;
@@ -1234,6 +1229,7 @@ export default async function Home() {
         .home-contact-links {
           display: flex;
           flex-wrap: wrap;
+          justify-content: center;
           gap: 22px;
         }
 
@@ -1567,7 +1563,9 @@ export default async function Home() {
           .home-contact-grid {
             grid-template-columns: 1fr;
             gap: 27px;
-            margin-top: 42px;
+            max-width: 520px;
+            margin: 42px auto 0;
+            text-align: center;
           }
 
           .home-contact-grid > div {

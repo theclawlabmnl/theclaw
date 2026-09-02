@@ -4,6 +4,7 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { formatDate } from "@/lib/utils";
 import CopyBookingId from "@/components/CopyBookingId";
+import BookingCardActions from "@/components/BookingCardActions";
 
 const STATUS_OPTIONS = [
   ["", "All bookings"],
@@ -20,25 +21,18 @@ function statusLabel(status: string) {
   switch (status) {
     case "pending":
       return "Pending";
-
     case "approved":
       return "Approved";
-
     case "payment_submitted":
       return "Payment Submitted";
-
     case "confirmed":
       return "Confirmed";
-
     case "completed":
       return "Completed";
-
     case "cancelled":
       return "Cancelled";
-
     case "rejected":
       return "Rejected";
-
     default:
       return status;
   }
@@ -48,25 +42,18 @@ function statusClass(status: string) {
   switch (status) {
     case "pending":
       return "booking-status booking-status-pending";
-
     case "approved":
       return "booking-status booking-status-approved";
-
     case "payment_submitted":
       return "booking-status booking-status-payment";
-
     case "confirmed":
       return "booking-status booking-status-confirmed";
-
     case "completed":
       return "booking-status booking-status-completed";
-
     case "cancelled":
       return "booking-status booking-status-cancelled";
-
     case "rejected":
       return "booking-status booking-status-rejected";
-
     default:
       return "booking-status";
   }
@@ -320,11 +307,24 @@ export default async function Bookings({
                     </span>
                   </div>
 
-                  {/* ACTION */}
-                  <div className="booking-card-action">
+                  {/* ACTIONS */}
+                  <div
+                    className="booking-card-action"
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "stretch",
+                      width: "100%",
+                      gap: "8px",
+                    }}
+                  >
                     <Link
                       href={`/admin/bookings/${booking.id}`}
                       className="booking-view-button"
+                      style={{
+                        width: "100%",
+                        boxSizing: "border-box",
+                      }}
                     >
                       View Details
 
@@ -334,6 +334,10 @@ export default async function Bookings({
                         →
                       </span>
                     </Link>
+
+                    <BookingCardActions
+                      id={booking.id}
+                    />
                   </div>
                 </div>
               </article>

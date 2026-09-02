@@ -18,7 +18,7 @@ async function getAdminDb() {
     .select("id")
     .eq("user_id", user.id)
     .eq("active", true)
-    .single();
+    .maybeSingle();
 
   return admin ? db : null;
 }
@@ -48,21 +48,31 @@ export async function POST(req: NextRequest) {
 
       if (!serviceId || !name) {
         return NextResponse.json(
-          { error: "Service and variation name are required." },
+          {
+            error:
+              "Service and variation name are required.",
+          },
           { status: 400 }
         );
       }
 
-      const { error } = await db.from("service_variations").insert({
-        service_id: serviceId,
-        name: name.slice(0, 120),
-        price_delta: numberOr(body.price_delta, 0),
-        duration_delta_minutes: Math.round(
-          numberOr(body.duration_delta_minutes, 0)
-        ),
-        active: body.active !== false,
-        sort_order: Math.round(numberOr(body.sort_order, 0)),
-      });
+      const { error } = await db
+        .from("service_variations")
+        .insert({
+          service_id: serviceId,
+          name: name.slice(0, 120),
+          price_delta: numberOr(body.price_delta, 0),
+          duration_delta_minutes: Math.round(
+            numberOr(
+              body.duration_delta_minutes,
+              0
+            )
+          ),
+          active: body.active !== false,
+          sort_order: Math.round(
+            numberOr(body.sort_order, 0)
+          ),
+        });
 
       if (error) {
         return NextResponse.json(
@@ -83,16 +93,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error } = await db.from("services").insert({
-      name: name.slice(0, 120),
-      description: String(body.description || "").slice(0, 2000),
-      price: numberOr(body.price, 0),
-      duration_minutes: Math.round(
-        numberOr(body.duration_minutes, 60)
-      ),
-      active: body.active !== false,
-      sort_order: Math.round(numberOr(body.sort_order, 0)),
-    });
+    const { error } = await db
+      .from("services")
+      .insert({
+        name: name.slice(0, 120),
+        description: String(
+          body.description || ""
+        ).slice(0, 2000),
+        price: numberOr(body.price, 0),
+        duration_minutes: Math.round(
+          numberOr(body.duration_minutes, 60)
+        ),
+        active: body.active !== false,
+        sort_order: Math.round(
+          numberOr(body.sort_order, 0)
+        ),
+      });
 
     if (error) {
       return NextResponse.json(
@@ -140,7 +156,10 @@ export async function PATCH(req: NextRequest) {
 
         if (!name) {
           return NextResponse.json(
-            { error: "Variation name is required." },
+            {
+              error:
+                "Variation name is required.",
+            },
             { status: 400 }
           );
         }
@@ -149,13 +168,20 @@ export async function PATCH(req: NextRequest) {
       }
 
       if ("price_delta" in body) {
-        patch.price_delta = numberOr(body.price_delta, 0);
+        patch.price_delta = numberOr(
+          body.price_delta,
+          0
+        );
       }
 
       if ("duration_delta_minutes" in body) {
-        patch.duration_delta_minutes = Math.round(
-          numberOr(body.duration_delta_minutes, 0)
-        );
+        patch.duration_delta_minutes =
+          Math.round(
+            numberOr(
+              body.duration_delta_minutes,
+              0
+            )
+          );
       }
 
       if ("active" in body) {
@@ -190,7 +216,9 @@ export async function PATCH(req: NextRequest) {
 
       if (!name) {
         return NextResponse.json(
-          { error: "Service name is required." },
+          {
+            error: "Service name is required.",
+          },
           { status: 400 }
         );
       }
@@ -199,10 +227,9 @@ export async function PATCH(req: NextRequest) {
     }
 
     if ("description" in body) {
-      patch.description = String(body.description || "").slice(
-        0,
-        2000
-      );
+      patch.description = String(
+        body.description || ""
+      ).slice(0, 2000);
     }
 
     if ("price" in body) {
@@ -258,8 +285,14 @@ export async function DELETE(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const type = body.type || "service";
-    const id = String(body.id || "").trim();
+
+    const type = String(
+      body.type || "service"
+    ).trim();
+
+    const id = String(
+      body.id || ""
+    ).trim();
 
     if (!id) {
       return NextResponse.json(
@@ -268,25 +301,137 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const table =
-      type === "variation"
-        ? "service_variations"
-        : "services";
+    /*
+     * DELETE VARIATION
+     */
+    if (type === "variation") {
+      const { data: variation, error: variationLookupError } =
+        await db
+          .from("service_variations")
+          .select("id")
+          .eq("id", id)
+          .maybeSingle();
 
-    const { error } = await db
-      .from(table)
-      .delete()
-      .eq("id", id);
+      if (variationLookupError) {
+        return NextResponse.json(
+          {
+            error:
+              variationLookupError.message,
+          },
+          { status: 500 }
+        );
+      }
 
-    if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 500 }
-      );
+      if (!variation) {
+        return NextResponse.json(
+          { error: "Variation not found." },
+          { status: 404 }
+        );
+      }
+
+      const { error: deleteError } = await db
+        .from("service_variations")
+        .delete()
+        .eq("id", id);
+
+      if (deleteError) {
+        return NextResponse.json(
+          { error: deleteError.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        deleted: "variation",
+        id,
+      });
     }
 
-    return NextResponse.json({ ok: true });
-  } catch {
+    /*
+     * DELETE SERVICE
+     *
+     * Delete variations first so the
+     * service foreign-key relationship
+     * cannot block the service deletion.
+     */
+    if (type === "service") {
+      const {
+        data: service,
+        error: serviceLookupError,
+      } = await db
+        .from("services")
+        .select("id")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (serviceLookupError) {
+        return NextResponse.json(
+          {
+            error:
+              serviceLookupError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      if (!service) {
+        return NextResponse.json(
+          { error: "Service not found." },
+          { status: 404 }
+        );
+      }
+
+      const {
+        error: variationDeleteError,
+      } = await db
+        .from("service_variations")
+        .delete()
+        .eq("service_id", id);
+
+      if (variationDeleteError) {
+        return NextResponse.json(
+          {
+            error:
+              variationDeleteError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      const { error: serviceDeleteError } =
+        await db
+          .from("services")
+          .delete()
+          .eq("id", id);
+
+      if (serviceDeleteError) {
+        return NextResponse.json(
+          {
+            error:
+              serviceDeleteError.message,
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        deleted: "service",
+        id,
+      });
+    }
+
+    return NextResponse.json(
+      { error: "Invalid delete type." },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error(
+      "Services DELETE error:",
+      error
+    );
+
     return NextResponse.json(
       { error: "Invalid request." },
       { status: 400 }

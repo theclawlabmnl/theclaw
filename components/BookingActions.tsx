@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 type BookingStatus =
   | "pending"
@@ -64,6 +65,8 @@ export default function BookingActions({
   id: string;
   status: BookingStatus;
 }) {
+  const router = useRouter();
+
   const [currentStatus, setCurrentStatus] =
     useState<BookingStatus>(status);
 
@@ -100,7 +103,14 @@ export default function BookingActions({
     nextStatus: BookingStatus,
     extra: Record<string, unknown> = {}
   ) {
-    if (loading || resetLoading || deleteLoading) return;
+    if (
+      loading ||
+      resetLoading ||
+      deleteLoading ||
+      overrideLoading
+    ) {
+      return;
+    }
 
     setLoading(true);
     setMessage("");
@@ -137,6 +147,8 @@ export default function BookingActions({
       setMessage(
         `Booking marked as ${statusLabels[nextStatus]}.`
       );
+
+      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error
@@ -149,7 +161,14 @@ export default function BookingActions({
   }
 
   async function resetBooking() {
-    if (resetLoading || deleteLoading) return;
+    if (
+      resetLoading ||
+      deleteLoading ||
+      loading ||
+      overrideLoading
+    ) {
+      return;
+    }
 
     if (resetStatus === currentStatus) {
       setError(
@@ -162,7 +181,9 @@ export default function BookingActions({
       `RESET BOOKING\n\nYou are about to reset this booking to:\n\n${statusLabels[resetStatus]}\n\nThis will change the booking status and clear cancellation state.\n\nContinue?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setResetLoading(true);
     setMessage("");
@@ -200,6 +221,8 @@ export default function BookingActions({
       setMessage(
         `Booking reset to ${statusLabels[resetStatus]}.`
       );
+
+      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error
@@ -212,19 +235,30 @@ export default function BookingActions({
   }
 
   async function deleteBooking() {
-    if (deleteLoading || resetLoading) return;
+    if (
+      deleteLoading ||
+      resetLoading ||
+      loading ||
+      overrideLoading
+    ) {
+      return;
+    }
 
     const confirmed = window.confirm(
       "DELETE BOOKING\n\nThis permanently deletes the booking and its related payment records, uploaded files, and payment proofs.\n\nThis action cannot be undone.\n\nAre you absolutely sure you want to delete this booking?"
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     const finalConfirmation = window.confirm(
       "FINAL CONFIRMATION\n\nDelete this booking permanently?"
     );
 
-    if (!finalConfirmation) return;
+    if (!finalConfirmation) {
+      return;
+    }
 
     setDeleteLoading(true);
     setMessage("");
@@ -234,12 +268,13 @@ export default function BookingActions({
       const response = await fetch(
         "/api/admin/bookings",
         {
-          method: "DELETE",
+          method: "PATCH",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             id,
+            action: "delete",
             confirm: true,
           }),
         }
@@ -254,9 +289,8 @@ export default function BookingActions({
         );
       }
 
-      setMessage("Booking deleted.");
-
-      window.location.href = "/admin/bookings";
+      router.replace("/admin/bookings");
+      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error
@@ -269,7 +303,14 @@ export default function BookingActions({
   }
 
   async function adminOverride() {
-    if (overrideLoading || deleteLoading) return;
+    if (
+      overrideLoading ||
+      deleteLoading ||
+      resetLoading ||
+      loading
+    ) {
+      return;
+    }
 
     if (overrideStatus === currentStatus) {
       setError(
@@ -282,7 +323,9 @@ export default function BookingActions({
       `ADMIN OVERRIDE\n\nYou are about to force this booking to:\n\n${statusLabels[overrideStatus]}\n\nThis bypasses the normal booking workflow. Use this only for emergency correction or recovery.\n\nContinue?`
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     setOverrideLoading(true);
     setMessage("");
@@ -319,6 +362,8 @@ export default function BookingActions({
       setMessage(
         `Admin override applied: ${statusLabels[overrideStatus]}.`
       );
+
+      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error
@@ -356,7 +401,8 @@ export default function BookingActions({
   const actionDisabled =
     loading ||
     resetLoading ||
-    deleteLoading;
+    deleteLoading ||
+    overrideLoading;
 
   return (
     <div className="booking-actions">
@@ -565,7 +611,6 @@ export default function BookingActions({
         </div>
       )}
 
-      {/* Emergency-only admin control */}
       <div className="booking-admin-override">
         <div className="booking-admin-override-row">
           <div>
@@ -640,7 +685,6 @@ export default function BookingActions({
         )}
       </div>
 
-      {/* Permanent delete */}
       <div className="booking-danger-zone">
         <div>
           <div className="booking-danger-title">

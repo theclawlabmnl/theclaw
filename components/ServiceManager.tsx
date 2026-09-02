@@ -62,7 +62,9 @@ export default function ServiceManager({
   services: Service[];
 }) {
   const [busy, setBusy] = useState(false);
-  const [editingService, setEditingService] = useState<string | null>(null);
+  const [editingService, setEditingService] = useState<string | null>(
+    null
+  );
 
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -204,7 +206,9 @@ export default function ServiceManager({
   };
 
   const deleteVariation = async (id: string) => {
-    if (!confirm("Delete this variation?")) return;
+    if (!confirm("Delete this variation?")) {
+      return;
+    }
 
     await request("DELETE", {
       type: "variation",
@@ -214,39 +218,44 @@ export default function ServiceManager({
 
   return (
     <div className="service-admin">
-      {/* ADD SERVICE */}
-      <div className="service-add-panel">
-        <div className="service-add-head">
-          <div>
-            <div className="kicker">Menu editor</div>
-            <h2 className="serif">Add a service</h2>
-            <p className="muted">
-              Create a service with its base price and appointment duration.
-            </p>
-          </div>
+      {/* CREATE SERVICE */}
+
+      <div className="card">
+        <div className="kicker">Menu editor</div>
+
+        <h2 className="serif">Add a service</h2>
+
+        <p className="muted">
+          Create a service with its base price and appointment duration.
+        </p>
+
+        <div className="field">
+          <label>Name</label>
+
+          <input
+            value={newName}
+            onChange={(event) =>
+              setNewName(event.target.value)
+            }
+            placeholder="e.g. Gel Manicure"
+          />
         </div>
 
-        <div className="service-add-fields">
-          <div className="field service-name-field">
-            <label>Name</label>
-            <input
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder="e.g. Gel Manicure"
-            />
-          </div>
-
-          <div className="field service-price-field">
+        <div className="inline-grid">
+          <div className="field">
             <label>Price</label>
+
             <input
               type="number"
               min="0"
               value={newPrice}
-              onChange={(event) => setNewPrice(event.target.value)}
+              onChange={(event) =>
+                setNewPrice(event.target.value)
+              }
             />
           </div>
 
-          <div className="field service-duration-field">
+          <div className="field">
             <label>Duration</label>
 
             <div className="duration-inputs">
@@ -280,6 +289,7 @@ export default function ServiceManager({
 
         <div className="field">
           <label>Description</label>
+
           <textarea
             value={newDescription}
             onChange={(event) =>
@@ -289,22 +299,22 @@ export default function ServiceManager({
           />
         </div>
 
-        <div className="service-add-actions">
-          <button
-            className="btn"
-            disabled={busy}
-            onClick={addService}
-          >
-            {busy ? "Saving..." : "+ Add Service"}
-          </button>
-        </div>
+        <button
+          className="btn"
+          disabled={busy}
+          onClick={addService}
+        >
+          {busy ? "Saving..." : "+ Add Service"}
+        </button>
       </div>
 
       {/* SERVICE LIST */}
-      <div className="service-list">
-        <div className="service-list-head">
+
+      <div className="service-admin-list">
+        <div className="service-admin-list-head">
           <div>
             <div className="kicker">Your menu</div>
+
             <h2 className="serif">Services</h2>
           </div>
 
@@ -315,23 +325,13 @@ export default function ServiceManager({
         </div>
 
         {services.length === 0 ? (
-          <div className="service-empty">
-            <h3 className="serif">No services yet</h3>
+          <div className="card">
             <p className="muted">
-              Add your first service above.
+              No services yet. Create your first service above.
             </p>
           </div>
         ) : (
-          <div className="service-table">
-            <div className="service-table-header">
-              <span>Service</span>
-              <span>Price</span>
-              <span>Duration</span>
-              <span>Variations</span>
-              <span>Status</span>
-              <span></span>
-            </div>
-
+          <div className="service-admin-grid">
             {services.map((service) => {
               const variations =
                 service.service_variations || [];
@@ -341,52 +341,20 @@ export default function ServiceManager({
 
               return (
                 <div
-                  className={`service-row ${
-                    isEditing
-                      ? "service-row-editing"
-                      : ""
-                  }`}
+                  className="card service-admin-card"
                   key={service.id}
                 >
-                  <div className="service-row-main">
-                    <strong>{service.name}</strong>
+                  {/* CARD HEADER */}
 
-                    {service.description ? (
-                      <span className="muted service-description">
-                        {service.description}
-                      </span>
-                    ) : null}
-                  </div>
+                  <div className="service-card-header">
+                    <div>
+                      <div className="kicker">Service</div>
 
-                  <div className="service-row-price">
-                    {peso(service.price)}
-                  </div>
+                      <h3 className="serif">
+                        {service.name}
+                      </h3>
+                    </div>
 
-                  <div className="service-row-duration">
-                    {durationText(
-                      service.duration_minutes
-                    )}
-                  </div>
-
-                  <div className="service-row-variations">
-                    {variations.length}
-                  </div>
-
-                  <div>
-                    <span
-                      className={`service-status ${
-                        service.active
-                          ? "service-status-active"
-                          : "service-status-inactive"
-                      }`}
-                    >
-                      {service.active
-                        ? "Active"
-                        : "Inactive"}
-                    </span>
-                  </div>
-
-                  <div className="service-row-action">
                     <button
                       className="btn secondary small"
                       onClick={() =>
@@ -401,7 +369,68 @@ export default function ServiceManager({
                     </button>
                   </div>
 
+                  {/* SUMMARY */}
+
+                  {service.description ? (
+                    <p className="muted service-card-description">
+                      {service.description}
+                    </p>
+                  ) : null}
+
+                  <div className="service-summary">
+                    <div>
+                      <span className="service-summary-label">
+                        Price
+                      </span>
+
+                      <strong>
+                        {peso(service.price)}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span className="service-summary-label">
+                        Duration
+                      </span>
+
+                      <strong>
+                        {durationText(
+                          service.duration_minutes
+                        )}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span className="service-summary-label">
+                        Variations
+                      </span>
+
+                      <strong>
+                        {variations.length}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span className="service-summary-label">
+                        Status
+                      </span>
+
+                      <span
+                        className={`service-status ${
+                          service.active
+                            ? "service-status-active"
+                            : "service-status-inactive"
+                        }`}
+                      >
+                        {service.active
+                          ? "Active"
+                          : "Inactive"}
+                      </span>
+                    </div>
+                  </div>
+
                   {/* EDITOR */}
+
                   {isEditing ? (
                     <div className="service-editor">
                       <div className="service-editor-head">
@@ -410,9 +439,9 @@ export default function ServiceManager({
                             Edit service
                           </div>
 
-                          <h3 className="serif">
+                          <h4 className="serif">
                             {service.name}
-                          </h3>
+                          </h4>
                         </div>
 
                         <button
@@ -428,35 +457,34 @@ export default function ServiceManager({
                         </button>
                       </div>
 
-                      <div className="service-editor-grid">
-                        <div className="field">
-                          <label>Name</label>
-                          <input
-                            defaultValue={
-                              service.name
+                      <div className="field">
+                        <label>Name</label>
+
+                        <input
+                          defaultValue={service.name}
+                          onBlur={(event) => {
+                            const value =
+                              event.target.value.trim();
+
+                            if (
+                              value &&
+                              value !== service.name
+                            ) {
+                              updateService(
+                                service.id,
+                                {
+                                  name: value,
+                                }
+                              );
                             }
-                            onBlur={(event) => {
-                              const value =
-                                event.target.value.trim();
+                          }}
+                        />
+                      </div>
 
-                              if (
-                                value &&
-                                value !==
-                                  service.name
-                              ) {
-                                updateService(
-                                  service.id,
-                                  {
-                                    name: value,
-                                  }
-                                );
-                              }
-                            }}
-                          />
-                        </div>
-
+                      <div className="inline-grid">
                         <div className="field">
                           <label>Price</label>
+
                           <input
                             type="number"
                             min="0"
@@ -501,7 +529,8 @@ export default function ServiceManager({
                                   {
                                     duration_minutes:
                                       durationToMinutes(
-                                        event.target.value,
+                                        event.target
+                                          .value,
                                         String(
                                           parts.minutes
                                         )
@@ -537,7 +566,8 @@ export default function ServiceManager({
                                         String(
                                           parts.hours
                                         ),
-                                        event.target.value
+                                        event.target
+                                          .value
                                       ),
                                   }
                                 );
@@ -548,26 +578,26 @@ export default function ServiceManager({
                             <span>min</span>
                           </div>
                         </div>
+                      </div>
 
-                        <div className="field service-editor-description">
-                          <label>Description</label>
-                          <textarea
-                            defaultValue={
-                              service.description ||
-                              ""
-                            }
-                            onBlur={(event) =>
-                              updateService(
-                                service.id,
-                                {
-                                  description:
-                                    event.target
-                                      .value,
-                                }
-                              )
-                            }
-                          />
-                        </div>
+                      <div className="field">
+                        <label>Description</label>
+
+                        <textarea
+                          defaultValue={
+                            service.description || ""
+                          }
+                          onBlur={(event) =>
+                            updateService(
+                              service.id,
+                              {
+                                description:
+                                  event.target
+                                    .value,
+                              }
+                            )
+                          }
+                        />
                       </div>
 
                       <label className="service-active">
@@ -587,14 +617,22 @@ export default function ServiceManager({
                             )
                           }
                         />{" "}
-                        Active
+                        Show on website
                       </label>
 
                       {/* VARIATIONS */}
+
                       <div className="service-variations">
                         <div className="service-variations-head">
                           <div>
-                            <h4>Variations</h4>
+                            <div className="kicker">
+                              Options
+                            </div>
+
+                            <h4 className="serif">
+                              Variations
+                            </h4>
+
                             <span className="muted">
                               Add optional price or time
                               adjustments.
@@ -609,7 +647,7 @@ export default function ServiceManager({
                           </span>
                         </div>
 
-                        {variations.length ? (
+                        {variations.length > 0 ? (
                           <div className="variation-list">
                             {variations.map(
                               (variation) => {
@@ -620,55 +658,71 @@ export default function ServiceManager({
 
                                 return (
                                   <div
-                                    className="variation-row"
+                                    className="card variation-card"
                                     key={
                                       variation.id
                                     }
                                   >
-                                    <div className="variation-main">
-                                      <div className="field">
-                                        <label>
-                                          Name
-                                        </label>
+                                    <div className="variation-card-head">
+                                      <div>
+                                        <div className="kicker">
+                                          Variation
+                                        </div>
 
-                                        <input
-                                          defaultValue={
+                                        <strong>
+                                          {
                                             variation.name
                                           }
-                                          onBlur={(
-                                            event
-                                          ) => {
-                                            const value =
-                                              event.target.value.trim();
-
-                                            if (
-                                              value &&
-                                              value !==
-                                                variation.name
-                                            ) {
-                                              updateVariation(
-                                                variation.id,
-                                                {
-                                                  name: value,
-                                                }
-                                              );
-                                            }
-                                          }}
-                                        />
+                                        </strong>
                                       </div>
 
-                                      <div className="variation-summary">
-                                        {peso(
-                                          variation.price_delta
-                                        )}{" "}
-                                        · +
-                                        {durationText(
-                                          variation.duration_delta_minutes
-                                        )}
-                                      </div>
+                                      <button
+                                        className="btn danger small"
+                                        disabled={
+                                          busy
+                                        }
+                                        onClick={() =>
+                                          deleteVariation(
+                                            variation.id
+                                          )
+                                        }
+                                      >
+                                        Delete
+                                      </button>
                                     </div>
 
-                                    <div className="variation-fields">
+                                    <div className="field">
+                                      <label>
+                                        Name
+                                      </label>
+
+                                      <input
+                                        defaultValue={
+                                          variation.name
+                                        }
+                                        onBlur={(
+                                          event
+                                        ) => {
+                                          const value =
+                                            event.target.value.trim();
+
+                                          if (
+                                            value &&
+                                            value !==
+                                              variation.name
+                                          ) {
+                                            updateVariation(
+                                              variation.id,
+                                              {
+                                                name: value,
+                                              }
+                                            );
+                                          }
+                                        }}
+                                      />
+                                    </div>
+
+                                    <div className="inline-grid">
                                       <div className="field">
                                         <label>
                                           Price adjustment
@@ -770,43 +824,37 @@ export default function ServiceManager({
                                       </div>
                                     </div>
 
-                                    <div className="variation-actions">
-                                      <label className="service-active">
-                                        <input
-                                          type="checkbox"
-                                          defaultChecked={
-                                            variation.active
-                                          }
-                                          onChange={(
-                                            event
-                                          ) =>
-                                            updateVariation(
-                                              variation.id,
-                                              {
-                                                active:
-                                                  event
-                                                    .target
-                                                    .checked,
-                                              }
-                                            )
-                                          }
-                                        />{" "}
-                                        Active
-                                      </label>
-
-                                      <button
-                                        className="btn danger small"
-                                        disabled={
-                                          busy
+                                    <label className="service-active">
+                                      <input
+                                        type="checkbox"
+                                        defaultChecked={
+                                          variation.active
                                         }
-                                        onClick={() =>
-                                          deleteVariation(
-                                            variation.id
+                                        onChange={(
+                                          event
+                                        ) =>
+                                          updateVariation(
+                                            variation.id,
+                                            {
+                                              active:
+                                                event
+                                                  .target
+                                                  .checked,
+                                            }
                                           )
                                         }
-                                      >
-                                        Delete
-                                      </button>
+                                      />{" "}
+                                      Show on website
+                                    </label>
+
+                                    <div className="variation-summary">
+                                      {peso(
+                                        variation.price_delta
+                                      )}{" "}
+                                      · +
+                                      {durationText(
+                                        variation.duration_delta_minutes
+                                      )}
                                     </div>
                                   </div>
                                 );
@@ -819,9 +867,20 @@ export default function ServiceManager({
                           </p>
                         )}
 
-                        <div className="variation-add">
+                        {/* ADD VARIATION */}
+
+                        <div className="variation-add card">
+                          <div className="kicker">
+                            Add variation
+                          </div>
+
+                          <h5 className="serif">
+                            New option
+                          </h5>
+
                           <div className="field">
                             <label>Name</label>
+
                             <input
                               value={
                                 variationName[
@@ -842,44 +901,22 @@ export default function ServiceManager({
                             />
                           </div>
 
-                          <div className="field">
-                            <label>+ Price</label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={
-                                variationPrice[
-                                  service.id
-                                ] || ""
-                              }
-                              onChange={(event) =>
-                                setVariationPrice(
-                                  (current) => ({
-                                    ...current,
-                                    [service.id]:
-                                      event.target
-                                        .value,
-                                  })
-                                )
-                              }
-                              placeholder="0"
-                            />
-                          </div>
+                          <div className="inline-grid">
+                            <div className="field">
+                              <label>
+                                + Price
+                              </label>
 
-                          <div className="field">
-                            <label>+ Duration</label>
-
-                            <div className="duration-inputs">
                               <input
                                 type="number"
                                 min="0"
                                 value={
-                                  variationHours[
+                                  variationPrice[
                                     service.id
                                   ] || ""
                                 }
                                 onChange={(event) =>
-                                  setVariationHours(
+                                  setVariationPrice(
                                     (current) => ({
                                       ...current,
                                       [service.id]:
@@ -889,35 +926,64 @@ export default function ServiceManager({
                                   )
                                 }
                                 placeholder="0"
-                                aria-label="Variation hours"
                               />
+                            </div>
 
-                              <span>hr</span>
+                            <div className="field">
+                              <label>
+                                + Duration
+                              </label>
 
-                              <input
-                                type="number"
-                                min="0"
-                                max="59"
-                                value={
-                                  variationMinutes[
-                                    service.id
-                                  ] || ""
-                                }
-                                onChange={(event) =>
-                                  setVariationMinutes(
-                                    (current) => ({
-                                      ...current,
-                                      [service.id]:
-                                        event.target
-                                          .value,
-                                    })
-                                  )
-                                }
-                                placeholder="0"
-                                aria-label="Variation minutes"
-                              />
+                              <div className="duration-inputs">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={
+                                    variationHours[
+                                      service.id
+                                    ] || ""
+                                  }
+                                  onChange={(event) =>
+                                    setVariationHours(
+                                      (current) => ({
+                                        ...current,
+                                        [service.id]:
+                                          event.target
+                                            .value,
+                                      })
+                                    )
+                                  }
+                                  placeholder="0"
+                                  aria-label="Variation hours"
+                                />
 
-                              <span>min</span>
+                                <span>hr</span>
+
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="59"
+                                  value={
+                                    variationMinutes[
+                                      service.id
+                                    ] || ""
+                                  }
+                                  onChange={(event) =>
+                                    setVariationMinutes(
+                                      (current) => ({
+                                        ...current,
+                                        [service.id]:
+                                          event.target
+                                            .value,
+                                      })
+                                    )
+                                  }
+                                  placeholder="0"
+                                  aria-label="Variation minutes"
+                                />
+
+                                <span>min</span>
+                              </div>
                             </div>
                           </div>
 
@@ -930,7 +996,7 @@ export default function ServiceManager({
                               )
                             }
                           >
-                            + Variation
+                            + Add Variation
                           </button>
                         </div>
                       </div>
@@ -942,6 +1008,201 @@ export default function ServiceManager({
           </div>
         )}
       </div>
+
+      <style jsx>{`
+        .service-admin {
+          display: grid;
+          gap: 24px;
+        }
+
+        .service-admin-list {
+          display: grid;
+          gap: 16px;
+        }
+
+        .service-admin-list-head {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 16px;
+        }
+
+        .service-admin-grid {
+          display: grid;
+          grid-template-columns: repeat(
+            auto-fit,
+            minmax(320px, 1fr)
+          );
+          gap: 16px;
+        }
+
+        .service-admin-card {
+          min-width: 0;
+        }
+
+        .service-card-header,
+        .service-editor-head,
+        .service-variations-head,
+        .variation-card-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+        }
+
+        .service-card-header h3,
+        .service-editor-head h4,
+        .service-variations-head h4,
+        .variation-add h5 {
+          margin: 4px 0 0;
+        }
+
+        .service-card-description {
+          margin: 14px 0 0;
+          white-space: pre-wrap;
+        }
+
+        .service-summary {
+          display: grid;
+          grid-template-columns: repeat(
+            4,
+            minmax(0, 1fr)
+          );
+          gap: 12px;
+          margin-top: 20px;
+          padding-top: 16px;
+          border-top: 1px solid
+            var(--border, #e5e5e5);
+        }
+
+        .service-summary > div {
+          display: grid;
+          gap: 4px;
+          min-width: 0;
+        }
+
+        .service-summary-label {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          opacity: 0.55;
+        }
+
+        .service-summary strong {
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .service-status {
+          display: inline-flex;
+          width: fit-content;
+          align-items: center;
+          padding: 4px 8px;
+          border-radius: 999px;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.03em;
+        }
+
+        .service-status-active {
+          background: rgba(50, 120, 70, 0.09);
+        }
+
+        .service-status-inactive {
+          background: rgba(0, 0, 0, 0.06);
+          opacity: 0.65;
+        }
+
+        .service-editor {
+          display: grid;
+          gap: 16px;
+          margin-top: 22px;
+          padding-top: 20px;
+          border-top: 1px solid
+            var(--border, #e5e5e5);
+        }
+
+        .service-active {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 12px;
+        }
+
+        .service-active input {
+          margin: 0;
+        }
+
+        .service-variations {
+          display: grid;
+          gap: 14px;
+          margin-top: 4px;
+          padding-top: 18px;
+          border-top: 1px solid
+            var(--border, #e5e5e5);
+        }
+
+        .variation-list {
+          display: grid;
+          gap: 12px;
+        }
+
+        .variation-card {
+          display: grid;
+          gap: 12px;
+          padding: 16px;
+          background: rgba(0, 0, 0, 0.018);
+        }
+
+        .variation-card-head strong {
+          display: block;
+          margin-top: 4px;
+          font-size: 14px;
+        }
+
+        .variation-summary {
+          font-size: 11px;
+          opacity: 0.7;
+        }
+
+        .variation-add {
+          display: grid;
+          gap: 12px;
+          margin-top: 2px;
+          padding: 16px;
+        }
+
+        @media (max-width: 700px) {
+          .service-admin-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .service-summary {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .service-card-header,
+          .service-editor-head,
+          .service-variations-head,
+          .variation-card-head {
+            gap: 10px;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .service-summary {
+            grid-template-columns: 1fr 1fr;
+          }
+
+          .service-card-header,
+          .service-editor-head,
+          .service-variations-head,
+          .variation-card-head {
+            flex-direction: column;
+            align-items: stretch;
+          }
+        }
+      `}</style>
     </div>
   );
 }

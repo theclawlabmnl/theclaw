@@ -34,13 +34,6 @@ const PAYMENT_METHODS = [
   "Other",
 ] as const;
 
-/*
- * Approved bookings have 3 hours to
- * submit their required payment.
- *
- * The timer starts from approved_at,
- * NOT from the original booking request.
- */
 const PAYMENT_DEADLINE_HOURS = 3;
 
 const PAYMENT_DEADLINE_MS =
@@ -51,12 +44,6 @@ const PAYMENT_DEADLINE_REASON =
 
 const PAYMENT_DEADLINE_NOTE =
   "Booking was automatically cancelled because payment was not submitted within 3 hours of approval.";
-
-/*
- * ------------------------------------------------------------
- * ADMIN AUTH
- * ------------------------------------------------------------
- */
 
 async function getAdminDb() {
   const session = await supabaseServer();
@@ -99,12 +86,6 @@ function jsonError(
   );
 }
 
-/*
- * ------------------------------------------------------------
- * PAYMENT DEADLINE
- * ------------------------------------------------------------
- */
-
 function getPaymentDeadline(
   approvedAt: string | null | undefined
 ): Date | null {
@@ -139,15 +120,6 @@ function isPaymentDeadlineExpired(
   );
 }
 
-/*
- * Automatically cancel approved bookings
- * whose 3-hour payment window has expired.
- *
- * Safe to run repeatedly.
- *
- * Only bookings still in "approved" status
- * are cancelled.
- */
 async function expireOverdueApprovedBookings(
   db: ReturnType<typeof supabaseAdmin>,
   now = new Date()
@@ -222,12 +194,6 @@ async function expireOverdueApprovedBookings(
       cancelledBookings?.length || 0,
   };
 }
-
-/*
- * ------------------------------------------------------------
- * TIME / DATE HELPERS
- * ------------------------------------------------------------
- */
 
 function normalizeTime(
   value: unknown
@@ -371,12 +337,6 @@ function overlaps(
     endA > startB
   );
 }
-
-/*
- * ------------------------------------------------------------
- * SERVICE CALCULATION
- * ------------------------------------------------------------
- */
 
 async function calculateServicesTotal(
   db: ReturnType<typeof supabaseAdmin>,
@@ -643,12 +603,6 @@ async function calculateServicesTotal(
   };
 }
 
-/*
- * ------------------------------------------------------------
- * AVAILABILITY VALIDATION
- * ------------------------------------------------------------
- */
-
 async function validateAvailability(
   db: ReturnType<typeof supabaseAdmin>,
   bookingId: string,
@@ -784,9 +738,6 @@ async function validateAvailability(
     }
   }
 
-  /*
-   * OPEN overrides add availability.
-   */
   for (
     const override of
       overridesResult.data ||
@@ -821,9 +772,6 @@ async function validateAvailability(
     }
   }
 
-  /*
-   * BLOCK overrides remove availability.
-   */
   for (
     const override of
       overridesResult.data ||
@@ -1021,12 +969,6 @@ async function validateAvailability(
   }
 }
 
-/*
- * ------------------------------------------------------------
- * POST
- * ------------------------------------------------------------
- */
-
 export async function POST(
   request: NextRequest
 ) {
@@ -1066,9 +1008,6 @@ export async function POST(
       );
     }
 
-    /*
-     * VERIFY DISCOUNT
-     */
     if (
       action ===
       "verify_discount"
@@ -1146,9 +1085,6 @@ export async function POST(
       );
     }
 
-    /*
-     * UNVERIFY DISCOUNT
-     */
     if (
       action ===
       "unverify_discount"
@@ -1182,9 +1118,6 @@ export async function POST(
       );
     }
 
-    /*
-     * VERIFY PAYMENT
-     */
     if (
       action ===
       "verify_payment"
@@ -1299,12 +1232,6 @@ export async function POST(
   }
 }
 
-/*
- * ------------------------------------------------------------
- * PATCH
- * ------------------------------------------------------------
- */
-
 export async function PATCH(
   request: NextRequest
 ) {
@@ -1319,13 +1246,6 @@ export async function PATCH(
       );
     }
 
-    /*
-     * Run the expiry check whenever
-     * the admin booking API is used.
-     *
-     * The scheduled job will handle
-     * unattended cancellation.
-     */
     try {
       await expireOverdueApprovedBookings(
         db
@@ -1358,6 +1278,380 @@ export async function PATCH(
       return jsonError(
         "Booking ID is required."
       );
+    }
+
+    /*
+     * --------------------------------------------------------
+     * DELETE BOOKING
+     * --------------------------------------------------------
+     */
+
+    if (
+      action === "delete"
+    ) {
+      if (
+        body.confirm !== true
+      ) {
+        return jsonError(
+          "Delete confirmation is required."
+        );
+      }
+
+      const {
+        data: paymentProofs,
+        error:
+          paymentProofLookupError,
+      } = await db
+        .from(
+          "payment_proofs"
+        )
+        .select(
+          "bucket,path"
+        )
+        .eq(
+          "booking_id",
+          id
+        );
+
+      if (
+        paymentProofLookupError
+      ) {
+        throw paymentProofLookupError;
+      }
+
+      const {
+        data: bookingFiles,
+        error:
+          bookingFilesLookupError,
+      } = await db
+        .from(
+          "booking_files"
+        )
+        .select(
+          "bucket,path"
+        )
+        .eq(
+          "booking_id",
+          id
+        );
+
+      if (
+        bookingFilesLookupError
+      ) {
+        throw bookingFilesLookupError;
+      }
+
+      const paymentProofDelete =
+        await db
+          .from(
+            "payment_proofs"
+          )
+          .delete()
+          .eq(
+            "booking_id",
+            id
+          );
+
+      if (
+        paymentProofDelete.error
+      ) {
+        throw paymentProofDelete.error;
+      }
+
+      const bookingFilesDelete =
+        await db
+          .from(
+            "booking_files"
+          )
+          .delete()
+          .eq(
+            "booking_id",
+            id
+          );
+
+      if (
+        bookingFilesDelete.error
+      ) {
+        throw bookingFilesDelete.error;
+      }
+
+      const bookingServicesDelete =
+        await db
+          .from(
+            "booking_services"
+          )
+          .delete()
+          .eq(
+            "booking_id",
+            id
+          );
+
+      if (
+        bookingServicesDelete.error
+      ) {
+        throw bookingServicesDelete.error;
+      }
+
+      const paymentsDelete =
+        await db
+          .from("payments")
+          .delete()
+          .eq(
+            "booking_id",
+            id
+          );
+
+      if (
+        paymentsDelete.error
+      ) {
+        throw paymentsDelete.error;
+      }
+
+      const {
+        data: deletedBooking,
+        error:
+          bookingDeleteError,
+      } = await db
+        .from("bookings")
+        .delete()
+        .eq(
+          "id",
+          id
+        )
+        .select("id")
+        .maybeSingle();
+
+      if (
+        bookingDeleteError
+      ) {
+        throw bookingDeleteError;
+      }
+
+      if (!deletedBooking) {
+        return jsonError(
+          "Booking not found.",
+          404
+        );
+      }
+
+      const storageGroups = [
+        paymentProofs || [],
+        bookingFiles || [],
+      ];
+
+      for (
+        const files of
+          storageGroups
+      ) {
+        const grouped =
+          new Map<
+            string,
+            string[]
+          >();
+
+        for (
+          const file of
+            files
+        ) {
+          if (
+            !file?.bucket ||
+            !file?.path
+          ) {
+            continue;
+          }
+
+          const existing =
+            grouped.get(
+              file.bucket
+            ) || [];
+
+          existing.push(
+            file.path
+          );
+
+          grouped.set(
+            file.bucket,
+            existing
+          );
+        }
+
+        for (
+          const [
+            bucket,
+            paths,
+          ] of grouped
+        ) {
+          if (
+            paths.length === 0
+          ) {
+            continue;
+          }
+
+          const {
+            error:
+              storageError,
+          } =
+            await db.storage
+              .from(
+                bucket
+              )
+              .remove(
+                paths
+              );
+
+          if (
+            storageError
+          ) {
+            console.error(
+              "Storage cleanup failed:",
+              {
+                bookingId:
+                  id,
+                bucket,
+                storageError,
+              }
+            );
+          }
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        deleted: true,
+        id,
+      });
+    }
+
+    /*
+     * --------------------------------------------------------
+     * RESET BOOKING
+     *
+     * IMPORTANT:
+     * Reset is handled BEFORE the normal booking lookup.
+     * --------------------------------------------------------
+     */
+
+    if (
+      action === "reset"
+    ) {
+      const resetStatus =
+        String(
+          body.status ||
+            ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        !RESET_STATUSES.includes(
+          resetStatus as (
+            typeof RESET_STATUSES
+          )[number]
+        )
+      ) {
+        return jsonError(
+          "Invalid reset status."
+        );
+      }
+
+      const {
+        data: resetBooking,
+        error:
+          resetLookupError,
+      } = await db
+        .from("bookings")
+        .select(
+          "id,status"
+        )
+        .eq(
+          "id",
+          id
+        )
+        .maybeSingle();
+
+      if (
+        resetLookupError
+      ) {
+        throw resetLookupError;
+      }
+
+      if (!resetBooking) {
+        return jsonError(
+          "Booking not found.",
+          404
+        );
+      }
+
+      const patch: Record<
+        string,
+        unknown
+      > = {
+        status:
+          resetStatus,
+      };
+
+      if (
+        resetStatus ===
+        "approved"
+      ) {
+        patch.approved_at =
+          new Date().toISOString();
+      } else {
+        patch.approved_at =
+          null;
+      }
+
+      if (
+        resetStatus !==
+        "confirmed"
+      ) {
+        patch.confirmed_at =
+          null;
+      }
+
+      patch.cancelled_at =
+        null;
+
+      patch.cancellation_reason =
+        null;
+
+      patch.cancellation_note =
+        null;
+
+      const {
+        data: updatedBooking,
+        error:
+          resetUpdateError,
+      } = await db
+        .from("bookings")
+        .update(patch)
+        .eq(
+          "id",
+          id
+        )
+        .select(
+          "id,status"
+        )
+        .maybeSingle();
+
+      if (
+        resetUpdateError
+      ) {
+        throw resetUpdateError;
+      }
+
+      if (!updatedBooking) {
+        return jsonError(
+          "Booking could not be reset.",
+          404
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        status:
+          resetStatus,
+      });
     }
 
     /*
@@ -1761,10 +2055,6 @@ export async function PATCH(
         throw paymentInsertError;
       }
 
-      /*
-       * Keep the legacy down_payment field
-       * synchronized with balance payments.
-       */
       if (
         paymentType ===
         "balance"
@@ -1911,10 +2201,6 @@ export async function PATCH(
           overrideStatus,
       };
 
-      /*
-       * Restart payment timer when
-       * forcing a booking to approved.
-       */
       if (
         overrideStatus ===
         "approved"
@@ -1976,13 +2262,6 @@ export async function PATCH(
         throw error;
       }
 
-      /*
-       * Send completion email if
-       * admin directly forces completed.
-       *
-       * Email failure must never undo
-       * the status change.
-       */
       if (
         overrideStatus ===
         "completed"
@@ -2248,92 +2527,6 @@ export async function PATCH(
 
     /*
      * --------------------------------------------------------
-     * RESET
-     * --------------------------------------------------------
-     */
-
-    if (
-      action === "reset"
-    ) {
-      const resetStatus =
-        String(
-          body.status ||
-            ""
-        )
-          .trim()
-          .toLowerCase();
-
-      if (
-        !RESET_STATUSES.includes(
-          resetStatus as (
-            typeof RESET_STATUSES
-          )[number]
-        )
-      ) {
-        return jsonError(
-          "Invalid reset status."
-        );
-      }
-
-      const patch: Record<
-        string,
-        unknown
-      > = {
-        status:
-          resetStatus,
-      };
-
-      if (
-        resetStatus ===
-        "approved"
-      ) {
-        patch.approved_at =
-          nowIso;
-      } else {
-        patch.approved_at =
-          null;
-      }
-
-      if (
-        resetStatus !==
-        "confirmed"
-      ) {
-        patch.confirmed_at =
-          null;
-      }
-
-      patch.cancelled_at =
-        null;
-
-      patch.cancellation_reason =
-        null;
-
-      patch.cancellation_note =
-        null;
-
-      const {
-        error,
-      } = await db
-        .from("bookings")
-        .update(patch)
-        .eq(
-          "id",
-          id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          resetStatus,
-      });
-    }
-
-    /*
-     * --------------------------------------------------------
      * VERIFY DISCOUNT
      * --------------------------------------------------------
      */
@@ -2584,10 +2777,6 @@ export async function PATCH(
         throw error;
       }
 
-      /*
-       * Completion email failure must
-       * never undo the status update.
-       */
       try {
         await notifyBookingCompleted({
           booking: {
@@ -2623,256 +2812,6 @@ export async function PATCH(
           nowIso,
         review_url:
           reviewUrl,
-      });
-    }
-
-    /*
-     * --------------------------------------------------------
-     * DELETE BOOKING
-     * --------------------------------------------------------
-     */
-
-    if (
-      action === "delete"
-    ) {
-      if (
-        body.confirm !== true
-      ) {
-        return jsonError(
-          "Delete confirmation is required."
-        );
-      }
-
-      /*
-       * Get storage references before
-       * deleting database rows.
-       */
-      const {
-        data: paymentProofs,
-        error:
-          paymentProofLookupError,
-      } = await db
-        .from(
-          "payment_proofs"
-        )
-        .select(
-          "bucket,path"
-        )
-        .eq(
-          "booking_id",
-          id
-        );
-
-      if (
-        paymentProofLookupError
-      ) {
-        throw paymentProofLookupError;
-      }
-
-      const {
-        data: bookingFiles,
-        error:
-          bookingFilesLookupError,
-      } = await db
-        .from(
-          "booking_files"
-        )
-        .select(
-          "bucket,path"
-        )
-        .eq(
-          "booking_id",
-          id
-        );
-
-      if (
-        bookingFilesLookupError
-      ) {
-        throw bookingFilesLookupError;
-      }
-
-      /*
-       * Delete child records first.
-       */
-      const paymentProofDelete =
-        await db
-          .from(
-            "payment_proofs"
-          )
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        paymentProofDelete.error
-      ) {
-        throw paymentProofDelete.error;
-      }
-
-      const bookingFilesDelete =
-        await db
-          .from(
-            "booking_files"
-          )
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        bookingFilesDelete.error
-      ) {
-        throw bookingFilesDelete.error;
-      }
-
-      const bookingServicesDelete =
-        await db
-          .from(
-            "booking_services"
-          )
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        bookingServicesDelete.error
-      ) {
-        throw bookingServicesDelete.error;
-      }
-
-      const paymentsDelete =
-        await db
-          .from("payments")
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        paymentsDelete.error
-      ) {
-        throw paymentsDelete.error;
-      }
-
-      /*
-       * Delete the booking itself.
-       */
-      const {
-        error:
-          bookingDeleteError,
-      } = await db
-        .from("bookings")
-        .delete()
-        .eq(
-          "id",
-          id
-        );
-
-      if (
-        bookingDeleteError
-      ) {
-        throw bookingDeleteError;
-      }
-
-      /*
-       * Remove uploaded files from storage.
-       *
-       * Database deletion is already complete.
-       * Storage cleanup failure is logged but
-       * does not make the booking deletion fail.
-       */
-      const storageGroups = [
-        paymentProofs || [],
-        bookingFiles || [],
-      ];
-
-      for (
-        const files of
-          storageGroups
-      ) {
-        const grouped =
-          new Map<
-            string,
-            string[]
-          >();
-
-        for (
-          const file of
-            files
-        ) {
-          if (
-            !file?.bucket ||
-            !file?.path
-          ) {
-            continue;
-          }
-
-          const existing =
-            grouped.get(
-              file.bucket
-            ) || [];
-
-          existing.push(
-            file.path
-          );
-
-          grouped.set(
-            file.bucket,
-            existing
-          );
-        }
-
-        for (
-          const [
-            bucket,
-            paths,
-          ] of grouped
-        ) {
-          if (
-            paths.length === 0
-          ) {
-            continue;
-          }
-
-          const {
-            error:
-              storageError,
-          } =
-            await db.storage
-              .from(
-                bucket
-              )
-              .remove(
-                paths
-              );
-
-          if (
-            storageError
-          ) {
-            console.error(
-              "Storage cleanup failed:",
-              {
-                bookingId:
-                  id,
-                bucket,
-                storageError,
-              }
-            );
-          }
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        deleted:
-          true,
-        id,
       });
     }
 
