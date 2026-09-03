@@ -51,6 +51,13 @@ export default function CancelBookingButton({
         );
       }
 
+      /*
+       * The API determines whether the cancellation
+       * is within the 48-hour refund window.
+       *
+       * We refresh the status page so the booking
+       * immediately changes to "Cancelled".
+       */
       router.refresh();
     } catch (err) {
       setError(
@@ -58,6 +65,7 @@ export default function CancelBookingButton({
           ? err.message
           : "Unable to cancel your booking."
       );
+
       setLoading(false);
     }
   }
@@ -71,7 +79,9 @@ export default function CancelBookingButton({
         className="status-secondary-button"
         style={{
           width: "100%",
-          cursor: loading ? "not-allowed" : "pointer",
+          cursor: loading
+            ? "not-allowed"
+            : "pointer",
           opacity: loading ? 0.6 : 1,
           background: "#fff",
           color: "#000",
@@ -82,7 +92,9 @@ export default function CancelBookingButton({
           fontWeight: 500,
         }}
       >
-        {loading ? "Cancelling..." : label}
+        {loading
+          ? "Cancelling..."
+          : label}
       </button>
 
       {error && (

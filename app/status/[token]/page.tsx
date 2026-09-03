@@ -8,6 +8,7 @@ import StatusAutoRefresh from "@/components/StatusAutoRefresh";
 import CancelBookingButton from "@/components/CancelBookingButton";
 
 const STATUS_WINDOW_DAYS = 5;
+const CANCELLATION_WINDOW_HOURS = 48;
 
 function getAppointmentDateTime(
   dateValue: string | null | undefined,
@@ -50,6 +51,34 @@ function hasActiveStatusAccess(
     STATUS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
   return Date.now() <= expiry;
+}
+
+function getCancellationDeadline(
+  status: string,
+  confirmedAt: string | null | undefined
+): Date | null {
+  if (status !== "confirmed" || !confirmedAt) {
+    return null;
+  }
+
+  const confirmedDate = new Date(confirmedAt);
+
+  if (Number.isNaN(confirmedDate.getTime())) {
+    return null;
+  }
+
+  return new Date(
+    confirmedDate.getTime() +
+      CANCELLATION_WINDOW_HOURS * 60 * 60 * 1000
+  );
+}
+
+function formatPhilippineDateTime(date: Date) {
+  return date.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 function getStatusContent(status: string) {
@@ -149,7 +178,8 @@ export default async function Status({
       customer_name,
       preferred_date,
       preferred_time,
-      access_token
+      access_token,
+      confirmed_at
       `
     )
     .eq("access_token", token)
@@ -163,7 +193,6 @@ export default async function Status({
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
-
             <div className="status-brand">
               The Claw Lab MNL
             </div>
@@ -207,7 +236,6 @@ export default async function Status({
                 Back to TheClawLabMNL Homepage
               </Link>
             </div>
-
           </div>
         </div>
       </main>
@@ -227,7 +255,6 @@ export default async function Status({
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
-
             <div className="status-brand">
               The Claw Lab MNL
             </div>
@@ -275,7 +302,6 @@ export default async function Status({
                 Back to TheClawLabMNL Homepage
               </Link>
             </div>
-
           </div>
         </div>
       </main>
@@ -285,6 +311,22 @@ export default async function Status({
   const status = String(booking.status || "");
 
   const content = getStatusContent(status);
+
+  /*
+   * 48-HOUR CANCELLATION POLICY
+   *
+   * The 48-hour period begins at the exact
+   * time the booking is confirmed.
+   */
+  const cancellationDeadline = getCancellationDeadline(
+    status,
+    booking.confirmed_at
+  );
+
+  const cancellationRefundEligible =
+    status === "confirmed" &&
+    cancellationDeadline !== null &&
+    Date.now() <= cancellationDeadline.getTime();
 
   /*
    * VIEW CONFIRMATION
@@ -337,13 +379,11 @@ export default async function Status({
 
   return (
     <main className="status-page">
-
       {status === "payment_submitted" && (
         <StatusAutoRefresh />
       )}
 
       <div className="status-page-inner">
-
         <div className="status-card">
 
           {/* BRAND */}
@@ -368,7 +408,6 @@ export default async function Status({
 
           {/* MESSAGE */}
           <div className="status-message">
-
             <h2>
               {content.title}
             </h2>
@@ -376,12 +415,10 @@ export default async function Status({
             <p>
               {content.description}
             </p>
-
           </div>
 
           {/* BOOKING SUMMARY */}
           <section className="status-summary">
-
             <div className="status-summary-title">
               Booking Summary
             </div>
@@ -420,7 +457,6 @@ export default async function Status({
               </div>
 
             </div>
-
           </section>
 
           {/* ACTION */}
@@ -483,6 +519,113 @@ export default async function Status({
               </>
             )}
 
+            {/* CONFIRMED — 48-HOUR CANCELLATION POLICY */}
+            {status === "confirmed" && (
+              <section
+                style={{
+                  marginBottom: "12px",
+                  padding: "12px 14px",
+                  borderRadius: "8px",
+                  border:
+                    cancellationRefundEligible
+                      ? "1px solid rgba(50, 130, 80, 0.30)"
+                      : "1px solid rgba(190, 50, 50, 0.30)",
+                  background:
+                    cancellationRefundEligible
+                      ? "rgba(50, 130, 80, 0.06)"
+                      : "rgba(190, 50, 50, 0.06)",
+                  color: "#000",
+                }}
+              >
+                <strong
+                  style={{
+                    display: "block",
+                    marginBottom: "5px",
+                    fontSize: "13px",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {cancellationRefundEligible
+                    ? "48-Hour Cancellation Window"
+                    : "48-Hour Cancellation Window Has Ended"}
+                </strong>
+
+                {cancellationDeadline ? (
+                  <>
+                    <p
+                      style={{
+                        margin: "0 0 6px",
+                        fontSize: "11px",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Your booking was confirmed at the
+                      exact confirmation time, and the
+                      48-hour cancellation period ends on:
+                    </p>
+
+                    <strong
+                      style={{
+                        display: "block",
+                        marginBottom: "7px",
+                        fontSize: "12px",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {formatPhilippineDateTime(
+                        cancellationDeadline
+                      )}{" "}
+                      (Philippine Time)
+                    </strong>
+
+                    {cancellationRefundEligible ? (
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "11px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        You may cancel within this 48-hour
+                        window and your booking/down payment
+                        is eligible for a refund, minus any
+                        applicable non-refundable payment
+                        processing fees.
+                      </p>
+                    ) : (
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: "11px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        You may still cancel your booking,
+                        but the booking/down payment is now
+                        <strong>
+                          {" "}non-refundable
+                        </strong>
+                        .
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "11px",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    The 48-hour cancellation period is
+                    calculated from the exact time your
+                    booking was confirmed. Please message
+                    us if you need help with your cancellation.
+                  </p>
+                )}
+              </section>
+            )}
+
             {/* PENDING / APPROVED / CONFIRMED CANCELLATION */}
             {canCancel && (
               <CancelBookingButton
@@ -494,7 +637,7 @@ export default async function Status({
             {/* CONFIRMED ONLY */}
             {canViewConfirmation && (
               <Link
-                href={`/confirmed/${token}`}
+                href={`/confirmation/${token}`}
                 className="status-primary-button"
               >
                 View Confirmation
@@ -589,7 +732,6 @@ export default async function Status({
 
           {/* CONTACT */}
           <div className="status-contact">
-
             <p>
               Questions? Message us.
             </p>
@@ -613,7 +755,6 @@ export default async function Status({
               </a>
 
             </div>
-
           </div>
 
           {/* FOOTER */}
@@ -641,9 +782,7 @@ export default async function Status({
           </div>
 
         </div>
-
       </div>
-
     </main>
   );
 }

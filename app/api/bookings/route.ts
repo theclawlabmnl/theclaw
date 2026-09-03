@@ -24,6 +24,8 @@ const MAX_INSPIRATION_FILES = 8;
 const MAX_IMAGE_MB = 8;
 const MAX_STUDENT_FILE_MB = 8;
 
+const CANCELLATION_WINDOW_HOURS = 48;
+
 const IMAGE_TYPES = new Set<string>([
   "image/jpeg",
   "image/png",
@@ -685,9 +687,6 @@ export async function GET(
       );
     }
 
-    /*
-     * Check which existing files are attached.
-     */
     const {
       data: existingFiles,
       error:
@@ -725,13 +724,6 @@ export async function GET(
           "student_registration"
       );
 
-    /*
-     * The database stores more descriptive promo
-     * names for referral/student discounts.
-     *
-     * The booking form needs the original select
-     * value instead.
-     */
     let promoName =
       booking.promo_name;
 
@@ -2116,7 +2108,7 @@ export async function PATCH(
               "Please choose a promo or discount option.",
           },
           {
-            status: 400,
+            status: 400
           }
         );
       }
@@ -2550,10 +2542,6 @@ export async function PATCH(
             discount_amount:
               discount,
 
-            /*
-             * Any edit to a discount needs to be
-             * verified again by admin.
-             */
             discount_verified:
               false,
 
@@ -3001,10 +2989,6 @@ export async function PATCH(
 
       /*
        * Keep the SAME token.
-       *
-       * This is important because the customer is
-       * editing the same booking rather than creating
-       * another booking.
        */
       return NextResponse.json({
         token:
@@ -3015,50 +2999,78 @@ export async function PATCH(
     /*
      * CUSTOMER CANCELLATION
      *
-     * Accept the token from either the JSON body or the query string.
-     * This supports both /api/bookings with { action, token } and
-     * /api/bookings?token=... with { action }.
+     * The cancellation rule is enforced here
+     * on the server.
+     *
+     * For a CONFIRMED booking:
+     *
+     * confirmed_at
+     *      +
+     * 48 hours
+     *      =
+     * cancellation deadline
+     *
+     * Before or exactly at the deadline:
+     * refund eligible.
+     *
+     * After the deadline:
+     * cancellation is still allowed,
+     * but the payment is non-refundable.
+     *
+     * IMPORTANT:
+     * This endpoint does NOT automatically issue
+     * a payment refund. It only determines whether
+     * the cancellation is refund eligible.
      */
     let body: any = null;
 
     try {
-      body = await request.json();
+      body =
+        await request.json();
     } catch {
       body = null;
     }
 
-    const action = String(
-      body?.action ||
-        ""
-    )
-      .trim()
-      .toLowerCase();
+    const action =
+      String(
+        body?.action ||
+          ""
+      )
+        .trim()
+        .toLowerCase();
 
     if (
       action === "cancel" ||
       action === "cancel_booking"
     ) {
-      const url = new URL(request.url);
+      const url =
+        new URL(
+          request.url
+        );
 
-      const bodyToken = String(
-        body?.token ||
-          ""
-      ).trim();
+      const bodyToken =
+        String(
+          body?.token ||
+            ""
+        ).trim();
 
-      const queryToken = String(
-        url.searchParams.get(
-          "token"
-        ) ||
-          ""
-      ).trim();
+      const queryToken =
+        String(
+          url.searchParams.get(
+            "token"
+          ) ||
+            ""
+        ).trim();
 
       const token =
-        bodyToken || queryToken;
+        bodyToken ||
+        queryToken;
 
       if (!token) {
         return NextResponse.json(
           {
-            error: "Missing token.",
+            error:
+              "Missing token.",
           },
           {
             status: 400,
@@ -3071,11 +3083,12 @@ export async function PATCH(
 
       const {
         data: booking,
-        error: bookingError,
+        error:
+          bookingError,
       } = await db
         .from("bookings")
         .select(
-          "id,status,access_token"
+          "id,status,access_token,confirmed_at"
         )
         .eq(
           "access_token",
@@ -3090,7 +3103,8 @@ export async function PATCH(
       if (!booking) {
         return NextResponse.json(
           {
-            error: "Booking not found.",
+            error:
+              "Booking not found.",
           },
           {
             status: 404,
@@ -3098,6 +3112,10 @@ export async function PATCH(
         );
       }
 
+      /*
+       * These are the statuses a customer may
+       * cancel themselves.
+       */
       const customerCancellableStatuses = [
         "pending",
         "approved",
@@ -3107,7 +3125,9 @@ export async function PATCH(
 
       if (
         !customerCancellableStatuses.includes(
-          String(booking.status)
+          String(
+            booking.status
+          )
         )
       ) {
         return NextResponse.json(
@@ -3121,13 +3141,110 @@ export async function PATCH(
         );
       }
 
+      /*
+       * DEFAULT:
+       *
+       * Cancellation is NOT refund eligible unless
+       * the booking is confirmed and the confirmed_at
+       * timestamp proves that the cancellation is
+       * still inside the 48-hour window.
+       */
+      let refundEligible =
+        false;
+
+      let cancellationDeadline:
+        | string
+        | null = null;
+
+      let cancellationReason =
+        "non_refundable";
+
+      /*
+       * Only CONFIRMED bookings use the 48-hour
+       * cancellation policy.
+       */
+      if (
+        booking.status ===
+        "confirmed"
+      ) {
+        if (
+          booking.confirmed_at
+        ) {
+          const confirmedAt =
+            new Date(
+              booking.confirmed_at
+            );
+
+          if (
+            !Number.isNaN(
+              confirmedAt.getTime()
+            )
+          ) {
+            const deadline =
+              new Date(
+                confirmedAt.getTime() +
+                  CANCELLATION_WINDOW_HOURS *
+                    60 *
+                    60 *
+                    1000
+              );
+
+            cancellationDeadline =
+              deadline.toISOString();
+
+            /*
+             * Exactly at the 48-hour deadline is
+             * still considered eligible.
+             */
+            refundEligible =
+              Date.now() <=
+              deadline.getTime();
+
+            cancellationReason =
+              refundEligible
+                ? "within_48_hours"
+                : "after_48_hours";
+          } else {
+            /*
+             * Invalid confirmed_at:
+             * fail closed.
+             */
+            cancellationReason =
+              "invalid_confirmation_timestamp";
+          }
+        } else {
+          /*
+           * Missing confirmed_at:
+           * fail closed.
+           */
+          cancellationReason =
+            "missing_confirmation_timestamp";
+        }
+      } else {
+        /*
+         * Pending / approved / payment_submitted
+         * cancellations do not receive the
+         * confirmed-booking 48-hour refund status.
+         */
+        cancellationReason =
+          "not_confirmed";
+      }
+
+      /*
+       * Cancel only if the booking is still in
+       * the exact status we originally read.
+       *
+       * This prevents a second request from
+       * cancelling an already-updated booking.
+       */
       const {
         data: cancelledBooking,
         error: cancelError,
       } = await db
         .from("bookings")
         .update({
-          status: "cancelled",
+          status:
+            "cancelled",
         })
         .eq(
           "id",
@@ -3158,9 +3275,33 @@ export async function PATCH(
         );
       }
 
+      /*
+       * Return the result of the policy check.
+       *
+       * refund_eligible tells the admin/frontend
+       * whether the payment qualifies for a refund.
+       *
+       * No automatic payment refund is performed here.
+       */
       return NextResponse.json({
         ok: true,
-        status: "cancelled",
+
+        status:
+          "cancelled",
+
+        refund_eligible:
+          refundEligible,
+
+        cancellation_deadline:
+          cancellationDeadline,
+
+        cancellation_reason:
+          cancellationReason,
+
+        refund_message:
+          refundEligible
+            ? "This cancellation was made within 48 hours of confirmation and is eligible for a refund, minus any applicable non-refundable payment processing fees."
+            : "This cancellation was made after the 48-hour cancellation window and the booking payment is non-refundable.",
       });
     }
 

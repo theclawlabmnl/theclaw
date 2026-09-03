@@ -12,6 +12,35 @@ import {
 const INSTRUCTIONS_URL =
   "https://drive.google.com/drive/folders/1rC9dDjIRK_eQGOiGQFVQAXopEtvo3zIp?usp=drive_link";
 
+const CANCELLATION_WINDOW_HOURS = 48;
+
+function getCancellationDeadline(
+  confirmedAt: string | null | undefined
+): Date | null {
+  if (!confirmedAt) {
+    return null;
+  }
+
+  const confirmedDate = new Date(confirmedAt);
+
+  if (Number.isNaN(confirmedDate.getTime())) {
+    return null;
+  }
+
+  return new Date(
+    confirmedDate.getTime() +
+      CANCELLATION_WINDOW_HOURS * 60 * 60 * 1000
+  );
+}
+
+function formatPhilippineDateTime(date: Date) {
+  return date.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export default async function Confirmed({
   params,
 }: {
@@ -138,6 +167,22 @@ export default async function Confirmed({
     estimatedTotal - downPayment
   );
 
+  /*
+   * 48-HOUR CANCELLATION POLICY
+   *
+   * The cancellation window starts from the
+   * exact time the booking was confirmed.
+   */
+  const cancellationDeadline =
+    getCancellationDeadline(
+      booking.confirmed_at
+    );
+
+  const cancellationRefundEligible =
+    cancellationDeadline !== null &&
+    Date.now() <=
+      cancellationDeadline.getTime();
+
   return (
     <main className="status-page">
 
@@ -223,10 +268,130 @@ export default async function Confirmed({
 
           </section>
 
+          {/* 48-HOUR CANCELLATION POLICY */}
+          <section
+            style={{
+              marginTop: "24px",
+              padding: "13px 14px",
+              borderRadius: "8px",
+              border:
+                cancellationRefundEligible
+                  ? "1px solid rgba(50, 130, 80, 0.30)"
+                  : "1px solid rgba(190, 50, 50, 0.30)",
+              background:
+                cancellationRefundEligible
+                  ? "rgba(50, 130, 80, 0.06)"
+                  : "rgba(190, 50, 50, 0.06)",
+              color: "#000",
+            }}
+          >
+
+            <strong
+              style={{
+                display: "block",
+                marginBottom: "6px",
+                fontSize: "13px",
+                lineHeight: 1.4,
+              }}
+            >
+              {cancellationRefundEligible
+                ? "48-Hour Cancellation Policy"
+                : "48-Hour Cancellation Period Has Ended"}
+            </strong>
+
+            {cancellationDeadline ? (
+              <>
+                <p
+                  style={{
+                    margin: "0 0 7px",
+                    fontSize: "11px",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  Your 48-hour cancellation period
+                  starts from the exact time your
+                  booking was confirmed.
+                </p>
+
+                <p
+                  style={{
+                    margin: "0 0 7px",
+                    fontSize: "11px",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  Cancellation deadline:
+                </p>
+
+                <strong
+                  style={{
+                    display: "block",
+                    marginBottom: "8px",
+                    fontSize: "12px",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {formatPhilippineDateTime(
+                    cancellationDeadline
+                  )}{" "}
+                  (Philippine Time)
+                </strong>
+
+                {cancellationRefundEligible ? (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "11px",
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    You may cancel within the
+                    48-hour window and your
+                    booking/down payment is eligible
+                    for a refund, minus any applicable
+                    non-refundable payment processing
+                    fees.
+                  </p>
+                ) : (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "11px",
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    You may still cancel your
+                    booking, but the booking/down
+                    payment is now{" "}
+                    <strong>
+                      non-refundable
+                    </strong>
+                    .
+                  </p>
+                )}
+              </>
+            ) : (
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: "11px",
+                  lineHeight: 1.55,
+                }}
+              >
+                The 48-hour cancellation period is
+                calculated from the exact time your
+                booking was confirmed. Please message
+                us if you need help with your
+                cancellation.
+              </p>
+            )}
+
+          </section>
+
           {/* CONFIRMATION ACTION */}
           <div className="status-action">
 
-             {/* No back button here */}
+            {/* No back button here */}
 
           </div>
 
@@ -414,34 +579,35 @@ export default async function Confirmed({
               Please review the appointment
               instructions, studio reminders,
               policies, and other important
-              information you may need before your visit.
+              information you may need before your
+              visit.
             </p>
 
             <a
-  href={INSTRUCTIONS_URL}
-  target="_blank"
-  rel="noreferrer"
-  className="status-primary-button"
-  style={{
-    marginTop: "14px",
-    display: "inline-flex",
-    textDecoration: "none",
-    background: "#f3d6dc",
-    color: "#000",
-  }}
->
-  View Appointment Instructions →
-</a>
+              href={INSTRUCTIONS_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="status-primary-button"
+              style={{
+                marginTop: "14px",
+                display: "inline-flex",
+                textDecoration: "none",
+                background: "#f3d6dc",
+                color: "#000",
+              }}
+            >
+              View Appointment Instructions →
+            </a>
 
-<Link
-  href={`/status/${token}`}
-  className="status-primary-button"
-  style={{
-    marginTop: "10px",
-  }}
->
-  ← Back to Booking Status
-</Link>
+            <Link
+              href={`/status/${token}`}
+              className="status-primary-button"
+              style={{
+                marginTop: "10px",
+              }}
+            >
+              ← Back to Booking Status
+            </Link>
 
           </section>
 

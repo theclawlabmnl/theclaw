@@ -424,7 +424,12 @@ export default function BookingActions({
 
           {/* CANCEL */}
           {canCancel && (
-            <div className="confirmed-cancel-area">
+            <div
+              className="confirmed-cancel-area"
+              style={{
+                marginTop: "8px",
+              }}
+            >
               {!cancelOpen ? (
                 <button
                   type="button"
@@ -535,6 +540,9 @@ export default function BookingActions({
                   "complete"
                 )
               }
+              style={{
+                marginTop: "2px",
+              }}
             >
               {loading
                 ? "Completing..."
@@ -878,28 +886,38 @@ export default function BookingActions({
           border: 1px solid #e7c2ca;
         }
 
-        /*
-         * This is the important spacing:
-         *
-         * View Confirmation
-         *       ↓
-         * 12px space
-         *       ↓
-         * Cancel booking
-         *       ↓
-         * 10px space
-         *       ↓
-         * Mark completed
-         */
         .confirmed-actions {
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          gap: 0;
           margin-top: 4px;
         }
 
+        /*
+         * CONFIRMED BOOKING ORDER:
+         *
+         * View Confirmation
+         *
+         * 8px gap
+         *
+         * Cancel booking
+         *
+         * 12px gap
+         *
+         * Mark completed
+         */
         .confirmed-cancel-area {
-          margin-top: 2px;
+          margin-top: 8px;
+        }
+
+        .confirmed-cancel-area
+          .cancel-button {
+          margin-top: 0;
+        }
+
+        .confirmed-actions
+          .complete-button {
+          margin-top: 12px;
         }
 
         .booking-cancel-box {
