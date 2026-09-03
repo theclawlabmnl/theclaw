@@ -5,7 +5,10 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useRouter } from "next/navigation";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
 const FULL_POLICY_URL =
   "https://docs.google.com/document/d/1aIrWBfOvahFIs1j4nsryNNydulxCCd9-D4ehWWyjsRg/edit?usp=sharing";
@@ -54,6 +57,35 @@ type AvailabilityMap = Record<
   string,
   AvailabilityDay
 >;
+
+type ExistingBooking = {
+  id: string;
+  customer_name: string;
+  email: string;
+  mobile_number: string;
+  social_handle: string;
+  preferred_date: string;
+  preferred_time: string;
+  removal: string;
+  promo_name: string | null;
+  discount_amount: number;
+  discount_category: string | null;
+  referral_name: string | null;
+  notes: string | null;
+  terms_accepted: boolean;
+  inspiration_count: number;
+  has_student_valid_id: boolean;
+  has_student_registration: boolean;
+  booking_services: Array<{
+    id: string;
+    service_id: string;
+    variation_id: string | null;
+    service_name: string;
+    variation_name: string | null;
+    price: number;
+    duration_minutes: number;
+  }>;
+};
 
 function peso(value: number) {
   return `₱${Number(value || 0).toLocaleString(
@@ -123,23 +155,39 @@ function formatDate(value: string) {
   );
 }
 
+type BookingFormProps = {
+  services: ServiceItem[];
+  promos: any[];
+  settings: Record<string, string>;
+  draft?: any | null;
+  draftToken?: string | null;
+};
+
 export default function BookingForm({
   services,
   promos,
   settings,
-}: {
-  services: ServiceItem[];
-  promos: any[];
-  settings: Record<string, string>;
-}) {
+  draft,
+  draftToken,
+}: BookingFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const editToken =
+    draftToken ||
+    searchParams.get("token") ||
+    "";
+
+  // The API GET remains the source of truth for the editable draft.
+  void draft;
+
+  const isEditing =
+    Boolean(editToken);
 
   const [
     selectedServices,
     setSelectedServices,
-  ] = useState<Record<string, string>>(
-    {}
-  );
+  ] = useState<Record<string, string>>({});
 
   const [
     customerName,
@@ -147,15 +195,14 @@ export default function BookingForm({
   ] = useState("");
 
   const [
-  email,
-  setEmail,
-] = useState("");
+    email,
+    setEmail,
+  ] = useState("");
 
   const [
     mobileNumber,
     setMobileNumber,
   ] = useState("");
-
 
   const [
     socialHandle,
@@ -218,6 +265,33 @@ export default function BookingForm({
   ] = useState<File | null>(null);
 
   const [
+    existingInspirationCount,
+    setExistingInspirationCount,
+  ] = useState(0);
+
+  const [
+    existingStudentValidId,
+    setExistingStudentValidId,
+  ] = useState(false);
+
+  const [
+    existingStudentRegistration,
+    setExistingStudentRegistration,
+  ] = useState(false);
+
+  const [
+    loadingExistingBooking,
+    setLoadingExistingBooking,
+  ] = useState(false);
+
+  const [
+    existingBookingLoaded,
+    setExistingBookingLoaded,
+  ] = useState(
+    !isEditing
+  );
+
+  const [
     calendarMonth,
     setCalendarMonth,
   ] = useState(
@@ -253,71 +327,347 @@ export default function BookingForm({
     setError,
   ] = useState("");
 
-  const selectedItems = useMemo(() => {
-    return services
-      .filter(
-        (service) =>
-          selectedServices[
-            service.id
-          ] !== undefined
-      )
-      .map((service) => {
-        const variationId =
-          selectedServices[
-            service.id
-          ];
+  /*
+   * LOAD EXISTING BOOKING
+   *
+   * When Edit Request opens /book?token=...,
+   * load the existing draft first and restore
+   * all of its values into the form.
+   */
+  useEffect(() => {
+    if (!editToken) {
+      setExistingBookingLoaded(true);
+      return;
+    }
 
-        const variation =
-          service.service_variations?.find(
-            (item) =>
-              item.id === variationId
+    let cancelled = false;
+
+    async function loadExistingBooking() {
+      setLoadingExistingBooking(true);
+      setExistingBookingLoaded(false);
+      setError("");
+
+      try {
+        const response = await fetch(
+          `/api/bookings?token=${encodeURIComponent(
+            editToken
+          )}&mode=edit`,
+          {
+            method: "GET",
+            cache: "no-store",
+          }
+        );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error ||
+              "Unable to load your existing booking."
           );
+        }
 
-        return {
-          service_id: service.id,
-          service_name: service.name,
-          variation_id:
-            variation?.id || null,
-          variation_name:
-            variation?.name || null,
-          price:
-            Number(service.price || 0) +
-            Number(
-              variation?.price_delta || 0
-            ),
-          duration_minutes:
-            Number(
-              service.duration_minutes || 0
-            ) +
-            Number(
-              variation?.duration_delta_minutes ||
-                0
-            ),
-        };
-      });
+        if (cancelled) {
+          return;
+        }
+
+        const booking:
+          | ExistingBooking
+          | null =
+          result.booking || null;
+
+        if (!booking) {
+          throw new Error(
+            "We couldn't find your existing booking request."
+          );
+        }
+
+        const nextSelectedServices:
+          Record<string, string> =
+          {};
+
+        for (
+          const item of
+            booking.booking_services ||
+          []
+        ) {
+          if (!item.service_id) {
+            continue;
+          }
+
+          nextSelectedServices[
+            item.service_id
+          ] =
+            item.variation_id || "";
+        }
+
+        setSelectedServices(
+          nextSelectedServices
+        );
+
+        setCustomerName(
+          booking.customer_name || ""
+        );
+
+        setEmail(
+          booking.email || ""
+        );
+
+        setMobileNumber(
+          booking.mobile_number || ""
+        );
+
+        setSocialHandle(
+          booking.social_handle || ""
+        );
+
+        setPreferredDate(
+          booking.preferred_date || ""
+        );
+
+        setPreferredTime(
+          booking.preferred_time || ""
+        );
+
+        setRemoval(
+          booking.removal || "None"
+        );
+
+        let restoredPromo = "";
+
+        if (booking.promo_name) {
+          if (
+            booking.promo_name ===
+            "First-time Booking Discount"
+          ) {
+            restoredPromo =
+              "first_time";
+          } else if (
+            booking.promo_name ===
+            "Student / PWD / SC Discount"
+          ) {
+            restoredPromo =
+              "student_pwd_sc";
+          } else if (
+            booking.promo_name ===
+            "Referral Program"
+          ) {
+            restoredPromo =
+              "referral";
+          } else if (
+            booking.promo_name ===
+            "Not Applicable"
+          ) {
+            restoredPromo = "none";
+          } else {
+            const matchingPromo =
+              promos.find(
+                (promo) =>
+                  promo.name ===
+                  booking.promo_name
+              );
+
+            if (matchingPromo) {
+              restoredPromo =
+                `promo:${matchingPromo.id}`;
+            }
+          }
+        }
+
+        setPromoChoice(
+          restoredPromo
+        );
+
+        setDiscountCategory(
+          booking.discount_category ||
+            ""
+        );
+
+        setReferralName(
+          booking.referral_name ||
+            ""
+        );
+
+        setNotes(
+          booking.notes || ""
+        );
+
+        setTermsAccepted(
+          Boolean(
+            booking.terms_accepted
+          )
+        );
+
+        setExistingInspirationCount(
+          Number(
+            booking.inspiration_count ||
+              0
+          )
+        );
+
+        setExistingStudentValidId(
+          Boolean(
+            booking.has_student_valid_id
+          )
+        );
+
+        setExistingStudentRegistration(
+          Boolean(
+            booking.has_student_registration
+          )
+        );
+
+        /*
+         * Restore the calendar to the month
+         * containing the existing appointment.
+         */
+        if (booking.preferred_date) {
+          const parts =
+            booking.preferred_date
+              .split("-")
+              .map(Number);
+
+          if (
+            parts.length === 3 &&
+            parts.every(
+              Number.isFinite
+            )
+          ) {
+            setCalendarMonth(
+              new Date(
+                parts[0],
+                parts[1] - 1,
+                1
+              )
+            );
+          }
+        }
+
+        setExistingBookingLoaded(
+          true
+        );
+      } catch (err: any) {
+        if (cancelled) {
+          return;
+        }
+
+        setError(
+          err?.message ||
+            "Unable to load your existing booking."
+        );
+
+        setExistingBookingLoaded(
+          false
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingExistingBooking(
+            false
+          );
+        }
+      }
+    }
+
+    loadExistingBooking();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    services,
-    selectedServices,
+    editToken,
+    promos,
   ]);
 
-  const subtotal = selectedItems.reduce(
-    (sum, item) =>
-      sum + Number(item.price || 0),
-    0
-  );
+  /*
+   * SELECTED SERVICES
+   */
+  const selectedItems =
+    useMemo(() => {
+      return services
+        .filter(
+          (service) =>
+            selectedServices[
+              service.id
+            ] !== undefined
+        )
+        .map((service) => {
+          const variationId =
+            selectedServices[
+              service.id
+            ];
+
+          const variation =
+            service.service_variations?.find(
+              (item) =>
+                item.id ===
+                variationId
+            );
+
+          return {
+            service_id:
+              service.id,
+
+            service_name:
+              service.name,
+
+            variation_id:
+              variation?.id || null,
+
+            variation_name:
+              variation?.name || null,
+
+            price:
+              Number(
+                service.price || 0
+              ) +
+              Number(
+                variation?.price_delta ||
+                  0
+              ),
+
+            duration_minutes:
+              Number(
+                service.duration_minutes ||
+                  0
+              ) +
+              Number(
+                variation?.duration_delta_minutes ||
+                  0
+              ),
+          };
+        });
+    }, [
+      services,
+      selectedServices,
+    ]);
+
+  const subtotal =
+    selectedItems.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.price || 0),
+      0
+    );
 
   const durationMinutes =
     selectedItems.reduce(
       (sum, item) =>
         sum +
         Number(
-          item.duration_minutes || 0
+          item.duration_minutes ||
+            0
         ),
       0
     ) || 60;
 
+  /*
+   * CURRENT PROMO
+   */
   const selectedPromo =
-    promoChoice.startsWith("promo:")
+    promoChoice.startsWith(
+      "promo:"
+    )
       ? promos.find(
           (promo) =>
             `promo:${promo.id}` ===
@@ -327,7 +677,10 @@ export default function BookingForm({
 
   let discountAmount = 0;
 
-  if (promoChoice === "first_time") {
+  if (
+    promoChoice ===
+    "first_time"
+  ) {
     discountAmount =
       subtotal * 0.05;
   }
@@ -341,39 +694,73 @@ export default function BookingForm({
   }
 
   if (selectedPromo) {
+    const discountType =
+      String(
+        selectedPromo.discount_type ||
+          ""
+      ).toLowerCase();
+
     if (
-      selectedPromo.discount_type ===
-      "percentage"
+      discountType ===
+        "percentage" ||
+      discountType ===
+        "percent" ||
+      discountType ===
+        "percent_off"
     ) {
       discountAmount =
         subtotal *
         (Number(
-          selectedPromo.discount_value
+          selectedPromo.discount_value ||
+            0
         ) /
           100);
     } else {
-      discountAmount = Number(
-        selectedPromo.discount_value || 0
-      );
+      discountAmount =
+        Number(
+          selectedPromo.discount_value ||
+            0
+        );
     }
   }
 
   discountAmount = Math.min(
-    discountAmount,
+    Math.max(
+      0,
+      discountAmount
+    ),
     subtotal
   );
 
   const estimatedTotal =
     Math.max(
       0,
-      subtotal - discountAmount
+      subtotal -
+        discountAmount
     );
 
+  /*
+   * LOAD AVAILABILITY
+   */
   useEffect(() => {
+    /*
+     * Do not request availability until an
+     * existing booking has finished loading.
+     */
+    if (
+      isEditing &&
+      !existingBookingLoaded
+    ) {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadAvailability() {
-      setAvailabilityLoading(true);
+      setAvailabilityLoading(
+        true
+      );
+
       setAvailabilityError("");
 
       try {
@@ -401,17 +788,20 @@ export default function BookingForm({
           return;
         }
 
-        const map: AvailabilityMap =
-          {};
+        const map:
+          AvailabilityMap = {};
 
         for (
-          const day of result.days ||
-          []
+          const day of
+            result.days || []
         ) {
-          map[day.date] = day;
+          map[day.date] =
+            day;
         }
 
-        setAvailability(map);
+        setAvailability(
+          map
+        );
       } catch (err: any) {
         if (cancelled) {
           return;
@@ -440,51 +830,63 @@ export default function BookingForm({
   }, [
     calendarMonth,
     durationMinutes,
+    isEditing,
+    existingBookingLoaded,
   ]);
 
   const today = new Date();
-  const todayKey = dateKey(today);
 
-  const currentMonthKey = monthKey(
+  const todayKey =
+    dateKey(today);
+
+  const currentMonthKey =
+    monthKey(
+      new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        1
+      )
+    );
+
+  const previousMonth =
     new Date(
-      today.getFullYear(),
-      today.getMonth(),
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth() -
+        1,
       1
-    )
-  );
-
-  const previousMonth = new Date(
-    calendarMonth.getFullYear(),
-    calendarMonth.getMonth() - 1,
-    1
-  );
+    );
 
   const canGoPrevious =
-    monthKey(previousMonth) >=
-    currentMonthKey;
+    monthKey(
+      previousMonth
+    ) >= currentMonthKey;
 
-  const firstDay = new Date(
-    calendarMonth.getFullYear(),
-    calendarMonth.getMonth(),
-    1
-  );
+  const firstDay =
+    new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      1
+    );
 
-  const daysInMonth = new Date(
-    calendarMonth.getFullYear(),
-    calendarMonth.getMonth() + 1,
-    0
-  ).getDate();
+  const daysInMonth =
+    new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth() +
+        1,
+      0
+    ).getDate();
 
-  const calendarCells: Array<
-    Date | null
-  > = [];
+  const calendarCells:
+    Array<Date | null> = [];
 
   for (
     let i = 0;
     i < firstDay.getDay();
     i++
   ) {
-    calendarCells.push(null);
+    calendarCells.push(
+      null
+    );
   }
 
   for (
@@ -514,9 +916,12 @@ export default function BookingForm({
           next[service.id] !==
           undefined
         ) {
-          delete next[service.id];
+          delete next[
+            service.id
+          ];
         } else {
-          next[service.id] = "";
+          next[service.id] =
+            "";
         }
 
         return next;
@@ -537,7 +942,9 @@ export default function BookingForm({
       return;
     }
 
-    setPreferredDate(value);
+    setPreferredDate(
+      value
+    );
 
     if (
       !day.slots.includes(
@@ -548,225 +955,378 @@ export default function BookingForm({
     }
   };
 
-  const submit = async () => {
-    setError("");
+  const submit =
+    async () => {
+      setError("");
 
-    if (!selectedItems.length) {
-      setError(
-        "Please select at least one service."
-      );
-      return;
-    }
+      if (
+        isEditing &&
+        !existingBookingLoaded
+      ) {
+        setError(
+          "Your existing booking is still loading. Please wait a moment and try again."
+        );
+        return;
+      }
 
-    if (!customerName.trim()) {
-      setError(
-        "Please enter your name."
-      );
-      return;
-    }
+      if (
+        !selectedItems.length
+      ) {
+        setError(
+          "Please select at least one service."
+        );
+        return;
+      }
 
-    if (!mobileNumber.trim()) {
-      setError(
-        "Please enter your mobile number."
-      );
-      return;
-    }
+      if (
+        !customerName.trim()
+      ) {
+        setError(
+          "Please enter your name."
+        );
+        return;
+      }
 
-    if (!preferredDate) {
-      setError(
-        "Please choose an appointment date."
-      );
-      return;
-    }
+      if (
+        !mobileNumber.trim()
+      ) {
+        setError(
+          "Please enter your mobile number."
+        );
+        return;
+      }
 
-    if (!preferredTime) {
-      setError(
-        "Please choose an appointment time."
-      );
-      return;
-    }
+      if (!email.trim()) {
+        setError(
+          "Please enter your email address."
+        );
+        return;
+      }
 
-    if (!promoChoice) {
-      setError(
-        "Please choose a promo or discount option."
-      );
-      return;
-    }
+      const emailPattern =
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (
-      promoChoice ===
-        "referral" &&
-      !referralName.trim()
-    ) {
-      setError(
-        "Please enter the name of the person who referred you."
-      );
-      return;
-    }
+      if (
+        !emailPattern.test(
+          email.trim()
+        )
+      ) {
+        setError(
+          "Please enter a valid email address."
+        );
+        return;
+      }
 
-    if (
-      promoChoice ===
-        "student_pwd_sc" &&
-      !discountCategory
-    ) {
-      setError(
-        "Please select whether the discount is for a Student, PWD, or Senior Citizen."
-      );
-      return;
-    }
+      if (!preferredDate) {
+        setError(
+          "Please choose an appointment date."
+        );
+        return;
+      }
 
-    if (
-      promoChoice ===
-        "student_pwd_sc" &&
-      !studentValidId
-    ) {
-      setError(
-        "Please upload a valid ID for the Student / PWD / SC discount."
-      );
-      return;
-    }
+      if (!preferredTime) {
+        setError(
+          "Please choose an appointment time."
+        );
+        return;
+      }
 
-    if (!termsAccepted) {
-      setError(
-        "Please read and agree to the studio policies before continuing."
-      );
-      return;
-    }
+      if (!promoChoice) {
+        setError(
+          "Please choose a promo or discount option."
+        );
+        return;
+      }
 
-    setBusy(true);
+      if (
+        promoChoice ===
+          "referral" &&
+        !referralName.trim()
+      ) {
+        setError(
+          "Please enter the name of the person who referred you."
+        );
+        return;
+      }
 
-    try {
-      const formData =
-        new FormData();
+      if (
+        promoChoice ===
+          "student_pwd_sc" &&
+        !discountCategory
+      ) {
+        setError(
+          "Please select whether the discount is for a Student, PWD, or Senior Citizen."
+        );
+        return;
+      }
 
-      formData.append(
-        "payload",
-        JSON.stringify({
-          customer_name:
-            customerName.trim(),
+      if (
+        promoChoice ===
+          "student_pwd_sc" &&
+        !studentValidId &&
+        !existingStudentValidId
+      ) {
+        setError(
+          "Please upload a valid ID for the Student / PWD / SC discount."
+        );
+        return;
+      }
 
-          mobile_number:
-            mobileNumber.trim(),
+      if (!termsAccepted) {
+        setError(
+          "Please read and agree to the studio policies before continuing."
+        );
+        return;
+      }
 
-          social_handle:
-            socialHandle.trim(),
+      setBusy(true);
+
+      try {
+        const formData =
+          new FormData();
+
+        formData.append(
+          "payload",
+          JSON.stringify({
+            customer_name:
+              customerName.trim(),
+
+            mobile_number:
+              mobileNumber.trim(),
 
             email:
-  email.trim(),
+              email.trim(),
 
-          preferred_date:
-            preferredDate,
+            social_handle:
+              socialHandle.trim(),
 
-          preferred_time:
-            preferredTime,
-      
+            preferred_date:
+              preferredDate,
 
-          removal,
+            preferred_time:
+              preferredTime,
 
-          promo_choice:
-            promoChoice,
+            removal,
 
-          discount_category:
-            discountCategory,
+            promo_choice:
+              promoChoice,
 
-          referral_name:
-            referralName.trim(),
+            discount_category:
+              discountCategory,
 
-          notes,
+            referral_name:
+              referralName.trim(),
 
-          terms_accepted:
-            termsAccepted,
+            notes:
+              notes.trim(),
 
-          services:
-            selectedItems,
+            terms_accepted:
+              termsAccepted,
 
-          inspiration_files:
-            inspirationFiles.map(
-              (file) =>
-                file.name
-            ),
-        })
-      );
+            services:
+              selectedItems,
 
-      for (
-        const file of inspirationFiles
-      ) {
-        formData.append(
-          "inspiration",
-          file
+            inspiration_files:
+              inspirationFiles.map(
+                (file) =>
+                  file.name
+              ),
+
+            edit_token:
+              isEditing
+                ? editToken
+                : null,
+
+            keep_existing_inspiration:
+              isEditing &&
+              inspirationFiles.length ===
+                0,
+
+            keep_existing_student_id:
+              isEditing &&
+              !studentValidId,
+
+            keep_existing_student_registration:
+              isEditing &&
+              !studentRegistration,
+          })
         );
-      }
 
-      if (studentValidId) {
-        formData.append(
-          "student_valid_id",
-          studentValidId
-        );
-      }
+        for (
+          const file of
+            inspirationFiles
+        ) {
+          formData.append(
+            "inspiration",
+            file
+          );
+        }
 
-      if (studentRegistration) {
-        formData.append(
-          "student_registration",
+        if (studentValidId) {
+          formData.append(
+            "student_valid_id",
+            studentValidId
+          );
+        }
+
+        if (
           studentRegistration
+        ) {
+          formData.append(
+            "student_registration",
+            studentRegistration
+          );
+        }
+
+        const response =
+          await fetch(
+            "/api/bookings",
+            {
+              method:
+                isEditing
+                  ? "PATCH"
+                  : "POST",
+              body: formData,
+            }
+          );
+
+        const result =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error ||
+              "Unable to save your booking request."
+          );
+        }
+
+        if (!result.token) {
+          throw new Error(
+            "Your booking was saved, but the review page could not be opened. Please try again."
+          );
+        }
+
+        router.push(
+          `/book/review?token=${encodeURIComponent(
+            result.token
+          )}`
         );
+      } catch (err: any) {
+        setError(
+          err?.message ||
+            "Unable to save your booking request."
+        );
+      } finally {
+        setBusy(false);
       }
+    };
 
-      const response =
-        await fetch(
-          "/api/bookings",
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
+  /*
+   * EDIT MODE LOADING SCREEN
+   *
+   * Do not show the blank form while the existing
+   * booking is being restored.
+   */
+  if (
+    isEditing &&
+    !existingBookingLoaded
+  ) {
+    return (
+      <main className="status-page booking-customer-page">
+        <div className="status-page-inner">
+          <div className="status-card">
+            <div className="status-brand">
+              The Claw Lab MNL
+            </div>
 
-      const result =
-        await response.json();
+            <div className="status-header">
+              <h1>
+                Edit Your Request
+              </h1>
+            </div>
 
-      if (!response.ok) {
-        throw new Error(
-          result.error ||
-            "Unable to submit your booking request."
-        );
-      }
+            <div className="status-message">
+              <p>
+                {loadingExistingBooking
+                  ? "Loading your existing booking details…"
+                  : error ||
+                    "Unable to load your existing booking."}
+              </p>
+            </div>
 
-      router.push(
-        `/book/review?token=${result.token}`
-      );
-    } catch (err: any) {
-      setError(
-        err?.message ||
-          "Unable to submit your booking request."
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
+            {!loadingExistingBooking &&
+              error && (
+                <div
+                  className="status-action"
+                  style={{
+                    marginTop:
+                      "14px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="status-primary-button"
+                    onClick={() =>
+                      window.location.reload()
+                    }
+                  >
+                    Try Again
+                  </button>
+
+                  <a
+                    href="/status"
+                    className="status-primary-button"
+                    style={{
+                      marginTop:
+                        "8px",
+                      background:
+                        "#f3d6dc",
+                      color: "#000",
+                      borderColor:
+                        "#f3d6dc",
+                      textDecoration:
+                        "none",
+                      textAlign:
+                        "center",
+                    }}
+                  >
+                    Back to Status
+                  </a>
+                </div>
+              )}
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="status-page booking-customer-page">
       <div className="status-page-inner">
         <div className="status-card">
-
           <div className="status-brand">
             The Claw Lab MNL
           </div>
 
           <div className="status-header">
             <h1>
-              Book an Appointment
+              {isEditing
+                ? "Edit Your Booking"
+                : "Book an Appointment"}
             </h1>
           </div>
 
           <div className="status-message">
             <h2>
-              Let's plan your pamper time. ♡
+              {isEditing
+                ? "Make any changes you'd like. ♡"
+                : "Let's plan your pamper time. ♡"}
             </h2>
 
             <p>
-              Choose your services, preferred
-              date and time, then tell us a
-              little about yourself.
+              {isEditing
+                ? "Your previous details have been filled in below. Update anything you need, then review your request again."
+                : "Choose your services, preferred date and time, then tell us a little about yourself."}
             </p>
           </div>
 
@@ -774,10 +1334,12 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>01</span>
+
               <div>
                 <strong>
                   Services
                 </strong>
+
                 <small>
                   Select everything you need
                   for your appointment.
@@ -957,10 +1519,12 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>02</span>
+
               <div>
                 <strong>
                   Your Details
                 </strong>
+
                 <small>
                   So we know who we're preparing
                   the appointment for.
@@ -982,8 +1546,7 @@ export default function BookingForm({
                     event
                   ) =>
                     setCustomerName(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   autoComplete="name"
@@ -1004,8 +1567,7 @@ export default function BookingForm({
                     event
                   ) =>
                     setMobileNumber(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   inputMode="tel"
@@ -1015,22 +1577,24 @@ export default function BookingForm({
               </div>
 
               <div className="field">
-  <label>
-    Email Address *
-  </label>
+                <label>
+                  Email Address *
+                </label>
 
-  <input
-    type="email"
-    value={email}
-    onChange={(event) =>
-      setEmail(
-        event.target.value
-      )
-    }
-    autoComplete="email"
-    placeholder="you@example.com"
-  />
-</div>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(
+                    event
+                  ) =>
+                    setEmail(
+                      event.target.value
+                    )
+                  }
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                />
+              </div>
 
               <div className="field">
                 <label>
@@ -1045,8 +1609,7 @@ export default function BookingForm({
                     event
                   ) =>
                     setSocialHandle(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   placeholder="@username"
@@ -1059,10 +1622,12 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>03</span>
+
               <div>
                 <strong>
                   Appointment
                 </strong>
+
                 <small>
                   Pick a date and an available
                   time.
@@ -1143,14 +1708,10 @@ export default function BookingForm({
                     }
 
                     const key =
-                      dateKey(
-                        cell
-                      );
+                      dateKey(cell);
 
                     const day =
-                      availability[
-                        key
-                      ];
+                      availability[key];
 
                     const isPast =
                       key <
@@ -1166,7 +1727,7 @@ export default function BookingForm({
                       preferredDate ===
                       key;
 
-                    const today =
+                    const isToday =
                       key ===
                       todayKey;
 
@@ -1192,7 +1753,7 @@ export default function BookingForm({
                             ? "selected"
                             : ""
                         } ${
-                          today
+                          isToday
                             ? "today"
                             : ""
                         }`}
@@ -1240,9 +1801,7 @@ export default function BookingForm({
                         (slot) => (
                           <button
                             type="button"
-                            key={
-                              slot
-                            }
+                            key={slot}
                             className={
                               preferredTime ===
                               slot
@@ -1279,10 +1838,12 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>04</span>
+
               <div>
                 <strong>
                   Existing Product Removal
                 </strong>
+
                 <small>
                   Let us know if you need existing
                   product removed.
@@ -1297,8 +1858,7 @@ export default function BookingForm({
                   event
                 ) =>
                   setRemoval(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
               >
@@ -1331,10 +1891,12 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>05</span>
+
               <div>
                 <strong>
                   Promo / Discount
                 </strong>
+
                 <small>
                   Select one applicable option.
                 </small>
@@ -1350,8 +1912,7 @@ export default function BookingForm({
                   event
                 ) => {
                   const value =
-                    event.target
-                      .value;
+                    event.target.value;
 
                   setPromoChoice(
                     value
@@ -1364,9 +1925,11 @@ export default function BookingForm({
                     setDiscountCategory(
                       ""
                     );
+
                     setStudentValidId(
                       null
                     );
+
                     setStudentRegistration(
                       null
                     );
@@ -1455,6 +2018,17 @@ export default function BookingForm({
                   for verification.
                 </p>
 
+                {isEditing &&
+                  existingStudentValidId &&
+                  !studentValidId && (
+                    <div className="booking-soft-note">
+                      Your existing valid ID
+                      will remain attached to
+                      this booking unless you
+                      select a new one below.
+                    </div>
+                  )}
+
                 <div className="field">
                   <label>
                     Discount Type *
@@ -1468,8 +2042,7 @@ export default function BookingForm({
                       event
                     ) => {
                       const value =
-                        event.target
-                          .value;
+                        event.target.value;
 
                       setDiscountCategory(
                         value
@@ -1515,13 +2088,18 @@ export default function BookingForm({
                       event
                     ) =>
                       setStudentValidId(
-                        event
-                          .target
-                          .files?.[0] ||
+                        event.target.files?.[0] ||
                           null
                       )
                     }
                   />
+
+                  {studentValidId && (
+                    <div className="booking-file-note">
+                      New ID selected:{" "}
+                      {studentValidId.name}
+                    </div>
+                  )}
                 </div>
 
                 {discountCategory ===
@@ -1542,13 +2120,21 @@ export default function BookingForm({
                         event
                       ) =>
                         setStudentRegistration(
-                          event
-                            .target
-                            .files?.[0] ||
+                          event.target.files?.[0] ||
                             null
                         )
                       }
                     />
+
+                    {isEditing &&
+                      existingStudentRegistration &&
+                      !studentRegistration && (
+                        <div className="booking-file-note">
+                          Your existing registration
+                          file will remain attached
+                          unless you select a new one.
+                        </div>
+                      )}
                   </div>
                 )}
               </div>
@@ -1569,8 +2155,7 @@ export default function BookingForm({
                     event
                   ) =>
                     setReferralName(
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                   placeholder="Enter their name"
@@ -1583,10 +2168,12 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>06</span>
+
               <div>
                 <strong>
                   Nail Inspiration
                 </strong>
+
                 <small>
                   Share photos so we can understand
                   your design direction.
@@ -1604,16 +2191,31 @@ export default function BookingForm({
                 ) =>
                   setInspirationFiles(
                     Array.from(
-                      event.target
-                        .files || []
+                      event.target.files ||
+                        []
                     ).slice(0, 8)
                   )
                 }
               />
 
+              {isEditing &&
+                existingInspirationCount >
+                  0 &&
+                inspirationFiles.length ===
+                  0 && (
+                  <div className="booking-file-note">
+                    Your existing{" "}
+                    {
+                      existingInspirationCount
+                    } inspiration file(s) will
+                    remain attached unless you
+                    select new files.
+                  </div>
+                )}
+
               <p>
                 {inspirationFiles.length
-                  ? `${inspirationFiles.length} file(s) selected.`
+                  ? `${inspirationFiles.length} new file(s) selected.`
                   : "Inspiration photos serve as a design reference only. Exact replication is not guaranteed due to differences in nail shape, length, condition, materials, and application technique."}
               </p>
             </div>
@@ -1623,13 +2225,14 @@ export default function BookingForm({
           <section className="booking-section">
             <div className="booking-section-heading">
               <span>07</span>
+
               <div>
                 <strong>
                   Additional Requests / Notes
                 </strong>
+
                 <small>
-                  Anything else you'd like your Nail Technician to
-                  know?
+                  Anything else you'd like your Nail Technician to know?
                 </small>
               </div>
             </div>
@@ -1641,8 +2244,7 @@ export default function BookingForm({
                   event
                 ) =>
                   setNotes(
-                    event.target
-                      .value
+                    event.target.value
                   )
                 }
                 placeholder="We’d love to know anything that will help us make your appointment extra special! Feel free to share any nail concerns, sensitivities, previous enhancements, or special requests."
@@ -1667,8 +2269,7 @@ export default function BookingForm({
                   event
                 ) =>
                   setTermsAccepted(
-                    event.target
-                      .checked
+                    event.target.checked
                   )
                 }
               />
@@ -1744,6 +2345,18 @@ export default function BookingForm({
               </strong>
             </div>
 
+            <div className="booking-final-row">
+              <span>
+                Services Subtotal
+              </span>
+
+              <strong>
+                {peso(
+                  subtotal
+                )}
+              </strong>
+            </div>
+
             {discountAmount >
               0 && (
               <div className="booking-final-row">
@@ -1778,11 +2391,19 @@ export default function BookingForm({
             <button
               type="button"
               className="status-primary-button"
-              disabled={busy}
+              disabled={
+                busy ||
+                (isEditing &&
+                  !existingBookingLoaded)
+              }
               onClick={submit}
             >
               {busy
-                ? "Preparing request…"
+                ? isEditing
+                  ? "Updating request…"
+                  : "Preparing request…"
+                : isEditing
+                ? "Review Updated Request →"
                 : "Review Booking Request →"}
             </button>
           </div>
@@ -1812,12 +2433,12 @@ export default function BookingForm({
             </div>
           </div>
 
+          {/* FOOTER */}
           <div className="status-footer">
             <a href="/">
               Back to TheClawLabMNL Homepage
             </a>
           </div>
-
         </div>
       </div>
 
@@ -2060,7 +2681,12 @@ export default function BookingForm({
           textarea:focus {
           border-color: #c7a5ad;
           box-shadow: 0 0 0 2px
-            rgba(199, 165, 173, 0.1);
+            rgba(
+              199,
+              165,
+              173,
+              0.1
+            );
         }
 
         .booking-calendar {
@@ -2283,6 +2909,17 @@ export default function BookingForm({
         .booking-upload p {
           margin: 8px 0 0;
           color: #888;
+          font-size: 9px;
+          line-height: 1.5;
+        }
+
+        .booking-file-note {
+          margin-top: 8px;
+          padding: 7px 9px;
+          border: 1px solid #eee4e1;
+          border-radius: 7px;
+          background: #fff;
+          color: #777;
           font-size: 9px;
           line-height: 1.5;
         }

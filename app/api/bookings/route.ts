@@ -80,6 +80,7 @@ function normalizeTime(
     const hours = Number(
       twentyFourHour[1]
     );
+
     const minutes = Number(
       twentyFourHour[2]
     );
@@ -90,7 +91,13 @@ function normalizeTime(
       minutes >= 0 &&
       minutes <= 59
     ) {
-      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+      return `${String(hours).padStart(
+        2,
+        "0"
+      )}:${String(minutes).padStart(
+        2,
+        "0"
+      )}`;
     }
 
     return null;
@@ -107,10 +114,13 @@ function normalizeTime(
   let hours = Number(
     twelveHour[1]
   );
+
   const minutes = Number(
     twelveHour[2]
   );
-  const suffix = twelveHour[3].toUpperCase();
+
+  const suffix =
+    twelveHour[3].toUpperCase();
 
   if (
     hours < 1 ||
@@ -129,32 +139,13 @@ function normalizeTime(
     hours += 12;
   }
 
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-}
-
-function toMinutes(
-  value: string | null | undefined
-): number | null {
-  const normalized = normalizeTime(value);
-
-  if (!normalized) {
-    return null;
-  }
-
-  const [hoursRaw, minutesRaw] =
-    normalized.split(":");
-
-  const hours = Number(hoursRaw);
-  const minutes = Number(minutesRaw);
-
-  if (
-    !Number.isFinite(hours) ||
-    !Number.isFinite(minutes)
-  ) {
-    return null;
-  }
-
-  return hours * 60 + minutes;
+  return `${String(hours).padStart(
+    2,
+    "0"
+  )}:${String(minutes).padStart(
+    2,
+    "0"
+  )}`;
 }
 
 function isValidDate(
@@ -168,52 +159,6 @@ function isValidDate(
   );
 }
 
-function isValidTime(
-  value: unknown
-): value is string {
-  return normalizeTime(value) !== null;
-}
-
-function getDayOfWeek(
-  value: string
-): number {
-  const [
-    year,
-    month,
-    day,
-  ] = value
-    .split("-")
-    .map(Number);
-
-  if (
-    !Number.isFinite(year) ||
-    !Number.isFinite(month) ||
-    !Number.isFinite(day)
-  ) {
-    return -1;
-  }
-
-  return new Date(
-    Date.UTC(
-      year,
-      month - 1,
-      day
-    )
-  ).getUTCDay();
-}
-
-function overlaps(
-  startA: number,
-  endA: number,
-  startB: number,
-  endB: number
-): boolean {
-  return (
-    startA < endB &&
-    endA > startB
-  );
-}
-
 function calculatePromoDiscount(
   promo: any,
   total: number
@@ -224,8 +169,7 @@ function calculatePromoDiscount(
 
   const type =
     String(
-      promo.discount_type ||
-        ""
+      promo.discount_type || ""
     ).toLowerCase();
 
   const value = Number(
@@ -256,60 +200,6 @@ function calculatePromoDiscount(
   );
 }
 
-async function getBookingDuration(
-  db: ReturnType<typeof supabaseAdmin>,
-  bookingId: string
-): Promise<number> {
-  const {
-    data,
-    error,
-  } = await db
-    .from(
-      "booking_services"
-    )
-    .select(
-      "duration_minutes"
-    )
-    .eq(
-      "booking_id",
-      bookingId
-    );
-
-  if (error) {
-    throw error;
-  }
-
-  const rows =
-    (data || []) as Array<{
-      duration_minutes:
-        | number
-        | null;
-    }>;
-
-  const total =
-    rows.reduce(
-      (
-        sum: number,
-        item: {
-          duration_minutes:
-            | number
-            | null;
-        }
-      ): number =>
-        sum +
-        Number(
-          item.duration_minutes ||
-            0
-        ),
-      0
-    );
-
-  return Math.max(
-    30,
-    total || 60
-  );
-}
-
 async function validateSelectedSlot(
   request: NextRequest,
   {
@@ -333,7 +223,9 @@ async function validateSelectedSlot(
     };
   }
 
-  const url = new URL(request.url);
+  const url = new URL(
+    request.url
+  );
 
   url.pathname =
     "/api/availability";
@@ -417,9 +309,7 @@ async function resolveServices(
 }> {
   const serviceIds =
     selectedServices.map(
-      (
-        item: SelectedServiceInput
-      ): string =>
+      (item) =>
         String(
           item.service_id
         )
@@ -427,33 +317,27 @@ async function resolveServices(
 
   const uniqueServiceIds =
     Array.from(
-      new Set(
-        serviceIds
-      )
+      new Set(serviceIds)
     );
 
   const {
     data: services,
-    error:
-      servicesError,
-  } =
-    await db
-      .from("services")
-      .select(
-        "id,name,price,duration_minutes,active"
-      )
-      .in(
-        "id",
-        uniqueServiceIds
-      )
-      .eq(
-        "active",
-        true
-      );
+    error: servicesError,
+  } = await db
+    .from("services")
+    .select(
+      "id,name,price,duration_minutes,active"
+    )
+    .in(
+      "id",
+      uniqueServiceIds
+    )
+    .eq(
+      "active",
+      true
+    );
 
-  if (
-    servicesError
-  ) {
+  if (servicesError) {
     throw servicesError;
   }
 
@@ -472,9 +356,7 @@ async function resolveServices(
   const variationIds =
     selectedServices
       .map(
-        (
-          item: SelectedServiceInput
-        ) =>
+        (item) =>
           item.variation_id
             ? String(
                 item.variation_id
@@ -483,13 +365,13 @@ async function resolveServices(
       )
       .filter(
         (
-          value: string | null
+          value
         ): value is string =>
           Boolean(value)
       );
 
-  let variations:
-    any[] = [];
+  let variations: any[] =
+    [];
 
   if (
     variationIds.length
@@ -497,26 +379,25 @@ async function resolveServices(
     const {
       data,
       error,
-    } =
-      await db
-        .from(
-          "service_variations"
-        )
-        .select(
-          "id,service_id,name,price_delta,duration_delta_minutes,active"
-        )
-        .in(
-          "id",
-          Array.from(
-            new Set(
-              variationIds
-            )
+    } = await db
+      .from(
+        "service_variations"
+      )
+      .select(
+        "id,service_id,name,price_delta,duration_delta_minutes,active"
+      )
+      .in(
+        "id",
+        Array.from(
+          new Set(
+            variationIds
           )
         )
-        .eq(
-          "active",
-          true
-        );
+      )
+      .eq(
+        "active",
+        true
+      );
 
     if (error) {
       throw error;
@@ -527,15 +408,10 @@ async function resolveServices(
   }
 
   const serviceMap =
-    new Map<
-      string,
-      any
-    >();
+    new Map<string, any>();
 
   serviceRows.forEach(
-    (
-      service: any
-    ) => {
+    (service: any) => {
       serviceMap.set(
         String(
           service.id
@@ -546,15 +422,10 @@ async function resolveServices(
   );
 
   const variationMap =
-    new Map<
-      string,
-      any
-    >();
+    new Map<string, any>();
 
   variations.forEach(
-    (
-      variation: any
-    ) => {
+    (variation: any) => {
       variationMap.set(
         String(
           variation.id
@@ -567,7 +438,7 @@ async function resolveServices(
   const resolvedServices =
     selectedServices.map(
       (
-        item: SelectedServiceInput
+        item
       ): ResolvedService => {
         const service =
           serviceMap.get(
@@ -607,8 +478,7 @@ async function resolveServices(
 
         const price =
           Number(
-            service.price ||
-              0
+            service.price || 0
           ) +
           Number(
             variation?.price_delta ||
@@ -661,9 +531,9 @@ async function resolveServices(
   const total =
     resolvedServices.reduce(
       (
-        sum: number,
-        item: ResolvedService
-      ): number =>
+        sum,
+        item
+      ) =>
         sum +
         Number(
           item.price || 0
@@ -676,9 +546,9 @@ async function resolveServices(
       30,
       resolvedServices.reduce(
         (
-          sum: number,
-          item: ResolvedService
-        ): number =>
+          sum,
+          item
+        ) =>
           sum +
           Number(
             item.duration_minutes ||
@@ -695,6 +565,285 @@ async function resolveServices(
   };
 }
 
+/*
+ * GET
+ *
+ * Used by BookingForm when opening:
+ *
+ * /book?token=BOOKING_TOKEN
+ */
+export async function GET(
+  request: NextRequest
+) {
+  try {
+    const url =
+      new URL(
+        request.url
+      );
+
+    const token =
+      url.searchParams.get(
+        "token"
+      );
+
+    const mode =
+      url.searchParams.get(
+        "mode"
+      );
+
+    if (
+      !token ||
+      mode !== "edit"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid booking request.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const db =
+      supabaseAdmin();
+
+    const {
+      data: booking,
+      error: bookingError,
+    } =
+      await db
+        .from("bookings")
+        .select(
+          `
+          id,
+          status,
+          customer_name,
+          email,
+          mobile_number,
+          social_handle,
+          preferred_date,
+          preferred_time,
+          removal,
+          promo_name,
+          discount_amount,
+          discount_category,
+          referral_name,
+          notes,
+          terms_accepted,
+          inspiration_count,
+          access_token,
+          booking_services(
+            id,
+            service_id,
+            variation_id,
+            service_name,
+            variation_name,
+            price,
+            duration_minutes
+          )
+          `
+        )
+        .eq(
+          "access_token",
+          token
+        )
+        .maybeSingle();
+
+    if (bookingError) {
+      throw bookingError;
+    }
+
+    if (!booking) {
+      return NextResponse.json(
+        {
+          error:
+            "Booking not found.",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    if (
+      booking.status !==
+      "draft"
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This booking can no longer be edited.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const {
+      data: existingFiles,
+      error:
+        filesError,
+    } = await db
+      .from(
+        "booking_files"
+      )
+      .select(
+        "kind"
+      )
+      .eq(
+        "booking_id",
+        booking.id
+      );
+
+    if (filesError) {
+      throw filesError;
+    }
+
+    const files =
+      existingFiles || [];
+
+    const hasStudentValidId =
+      files.some(
+        (file: any) =>
+          file.kind ===
+          "student_valid_id"
+      );
+
+    const hasStudentRegistration =
+      files.some(
+        (file: any) =>
+          file.kind ===
+          "student_registration"
+      );
+
+    let promoName =
+      booking.promo_name;
+
+    if (
+      typeof promoName ===
+        "string" &&
+      promoName.startsWith(
+        "Student / PWD / SC Discount"
+      )
+    ) {
+      promoName =
+        "Student / PWD / SC Discount";
+    }
+
+    if (
+      typeof promoName ===
+        "string" &&
+      promoName.startsWith(
+        "Referral Program"
+      )
+    ) {
+      promoName =
+        "Referral Program";
+    }
+
+    return NextResponse.json({
+      booking: {
+        id:
+          booking.id,
+
+        customer_name:
+          booking.customer_name ||
+          "",
+
+        email:
+          booking.email ||
+          "",
+
+        mobile_number:
+          booking.mobile_number ||
+          "",
+
+        social_handle:
+          booking.social_handle ||
+          "",
+
+        preferred_date:
+          booking.preferred_date ||
+          "",
+
+        preferred_time:
+          booking.preferred_time ||
+          "",
+
+        removal:
+          booking.removal ||
+          "None",
+
+        promo_name:
+          promoName,
+
+        discount_amount:
+          Number(
+            booking.discount_amount ||
+              0
+          ),
+
+        discount_category:
+          booking.discount_category ||
+          null,
+
+        referral_name:
+          booking.referral_name ||
+          null,
+
+        notes:
+          booking.notes ||
+          null,
+
+        terms_accepted:
+          Boolean(
+            booking.terms_accepted
+          ),
+
+        inspiration_count:
+          Number(
+            booking.inspiration_count ||
+              0
+          ),
+
+        has_student_valid_id:
+          hasStudentValidId,
+
+        has_student_registration:
+          hasStudentRegistration,
+
+        booking_services:
+          booking.booking_services ||
+          [],
+      },
+    });
+  } catch (
+    error: any
+  ) {
+    console.error(
+      "Load booking error:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        error:
+          error?.message ||
+          "Unable to load booking.",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}
+
+/*
+ * CREATE NEW BOOKING
+ */
 export async function POST(
   request: NextRequest
 ) {
@@ -711,7 +860,19 @@ export async function POST(
       typeof payloadRaw ===
       "string"
         ? payloadRaw
-        : "{}";
+        : "";
+
+    if (!payloadText) {
+      return NextResponse.json(
+        {
+          error:
+            "Booking data is missing.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     let payload: any;
 
@@ -808,9 +969,6 @@ export async function POST(
     const db =
       supabaseAdmin();
 
-    /*
-     * INSPIRATION FILES
-     */
     const inspirationFiles =
       formData
         .getAll(
@@ -818,10 +976,9 @@ export async function POST(
         )
         .filter(
           (
-            item: FormDataEntryValue
+            item
           ): item is File =>
-            item instanceof
-            File
+            item instanceof File
         );
 
     if (
@@ -877,14 +1034,9 @@ export async function POST(
       }
     }
 
-    /*
-     * SERVICES
-     */
     const selectedServices: SelectedServiceInput[] =
       payload.services.map(
-        (
-          item: any
-        ): SelectedServiceInput => ({
+        (item: any) => ({
           service_id:
             String(
               item.service_id
@@ -909,14 +1061,23 @@ export async function POST(
         selectedServices
       );
 
-    /*
-     * PROMO / DISCOUNT
-     */
     const promoChoice =
       String(
         payload.promo_choice ||
           ""
       );
+
+    if (!promoChoice) {
+      return NextResponse.json(
+        {
+          error:
+            "Please choose a promo or discount option.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     let promoId:
       | string
@@ -945,12 +1106,6 @@ export async function POST(
           ""
       ).toLowerCase();
 
-    /*
-     * CURRENT PROMO
-     *
-     * This is mutually exclusive with
-     * the permanent discount choices.
-     */
     if (
       promoChoice.startsWith(
         "promo:"
@@ -1020,12 +1175,6 @@ export async function POST(
         );
     }
 
-    /*
-     * FIRST-TIME BOOKING DISCOUNT
-     *
-     * 5% off regular rates only.
-     * It cannot be combined with a promo.
-     */
     if (
       isFirstTime
     ) {
@@ -1036,13 +1185,6 @@ export async function POST(
         baseTotal * 0.05;
     }
 
-    /*
-     * STUDENT / PWD / SC DISCOUNT
-     *
-     * 5% discount. A valid ID is required.
-     * Registration Card/Form is optional and
-     * only relevant when the customer is a Student.
-     */
     if (
       isStudentPwdSc
     ) {
@@ -1185,12 +1327,6 @@ export async function POST(
       }
     }
 
-    /*
-     * REFERRAL PROGRAM
-     *
-     * Currently no automatic discount;
-     * it simply records who referred them.
-     */
     if (
       isReferral
     ) {
@@ -1200,9 +1336,7 @@ export async function POST(
             ""
         ).trim();
 
-      if (
-        !referralName
-      ) {
+      if (!referralName) {
         return NextResponse.json(
           {
             error:
@@ -1221,11 +1355,9 @@ export async function POST(
         )}`;
     }
 
-    /*
-     * NO DISCOUNT
-     */
     if (
-      !promoChoice
+      promoChoice ===
+      "none"
     ) {
       promoName =
         "Not Applicable";
@@ -1233,19 +1365,22 @@ export async function POST(
       discount = 0;
     }
 
-    /*
-     * FINAL SERVER-CALCULATED TOTAL
-     */
-    const estimatedTotal =
+    discount =
       Math.max(
         0,
-        baseTotal -
-          discount
+        Math.min(
+          Number(
+            discount || 0
+          ),
+          baseTotal
+        )
       );
 
-    /*
-     * AVAILABILITY
-     */
+    discount =
+      Math.round(
+        discount * 100
+      ) / 100;
+
     const availability =
       await validateSelectedSlot(
         request,
@@ -1274,9 +1409,6 @@ export async function POST(
       );
     }
 
-    /*
-     * CREATE DRAFT BOOKING
-     */
     const token =
       makeToken(32);
 
@@ -1355,6 +1487,31 @@ export async function POST(
           promo_name:
             promoName,
 
+          discount_amount:
+            discount,
+
+          discount_verified:
+            false,
+
+          discount_verified_at:
+            null,
+
+          discount_category:
+            isStudentPwdSc
+              ? discountCategory
+              : null,
+
+          referral_name:
+            isReferral
+              ? String(
+                  payload.referral_name ||
+                    ""
+                ).slice(
+                  0,
+                  120
+                )
+              : null,
+
           notes:
             String(
               payload.notes ||
@@ -1371,7 +1528,7 @@ export async function POST(
             "draft",
 
           estimated_total:
-            estimatedTotal,
+            baseTotal,
 
           down_payment:
             0,
@@ -1396,16 +1553,10 @@ export async function POST(
       );
     }
 
-    /*
-     * BOOKING SERVICES
-     *
-     * All prices and durations come from
-     * the database-resolved service records.
-     */
     const bookingServiceRows =
       resolvedServices.map(
         (
-          item: ResolvedService
+          item
         ) => ({
           booking_id:
             booking.id,
@@ -1448,9 +1599,6 @@ export async function POST(
       throw bookingServicesError;
     }
 
-    /*
-     * NAIL INSPIRATION
-     */
     for (
       const file of
         inspirationFiles
@@ -1512,14 +1660,6 @@ export async function POST(
       }
     }
 
-    /*
-     * STUDENT / PWD / SC DOCUMENTS
-     *
-     * Valid ID is required for all three.
-     * Registration Card/Form is optional and
-     * only saved when the customer selected Student
-     * and uploaded one.
-     */
     if (
       isStudentPwdSc
     ) {
@@ -1648,10 +1788,1389 @@ export async function POST(
   }
 }
 
+/*
+ * PATCH
+ *
+ * Supports:
+ *
+ * 1. CUSTOMER CANCELLATION
+ *
+ *    PATCH /api/bookings
+ *    {
+ *      token: "...",
+ *      action: "cancel"
+ *    }
+ *
+ * 2. Submit an existing draft:
+ *
+ *    PATCH /api/bookings?token=...
+ *
+ * 3. Update an existing draft:
+ *
+ *    PATCH /api/bookings
+ *    multipart FormData
+ *    containing edit_token
+ */
 export async function PATCH(
   request: NextRequest
 ) {
   try {
+    const contentType =
+      request.headers.get(
+        "content-type"
+      ) || "";
+
+    const isMultipart =
+      contentType.includes(
+        "multipart/form-data"
+      );
+
+    /*
+     * ============================================================
+     * CUSTOMER CANCEL BOOKING
+     * ============================================================
+     *
+     * This must happen BEFORE the normal draft PATCH logic.
+     *
+     * Cancel button sends:
+     *
+     * {
+     *   token,
+     *   action: "cancel"
+     * }
+     *
+     * The token is therefore read from JSON body,
+     * not from ?token=.
+     */
+    if (
+      !isMultipart &&
+      contentType.includes(
+        "application/json"
+      )
+    ) {
+      let body: any = null;
+
+      try {
+        body =
+          await request.json();
+      } catch {
+        body = null;
+      }
+
+      if (
+        body?.action ===
+        "cancel"
+      ) {
+        const cancelToken =
+          String(
+            body?.token ||
+              ""
+          ).trim();
+
+        if (!cancelToken) {
+          return NextResponse.json(
+            {
+              error:
+                "Missing booking token.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        const db =
+          supabaseAdmin();
+
+        const {
+          data: booking,
+          error:
+            bookingError,
+        } = await db
+          .from("bookings")
+          .select(
+            `
+            id,
+            status,
+            access_token,
+            reference_code
+            `
+          )
+          .eq(
+            "access_token",
+            cancelToken
+          )
+          .maybeSingle();
+
+        if (
+          bookingError
+        ) {
+          throw bookingError;
+        }
+
+        if (
+          !booking
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Booking not found.",
+            },
+            {
+              status: 404,
+            }
+          );
+        }
+
+        /*
+         * Customer is only allowed to cancel
+         * these active statuses.
+         *
+         * draft is intentionally NOT included.
+         * A draft is not an active appointment request.
+         */
+        const cancellableStatuses =
+          [
+            "pending",
+            "approved",
+            "confirmed",
+          ];
+
+        if (
+          !cancellableStatuses.includes(
+            String(
+              booking.status
+            )
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "This booking can no longer be cancelled.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        /*
+         * Atomic status update.
+         *
+         * The .eq("status", currentStatus) prevents
+         * two requests from cancelling/updating the
+         * same booking incorrectly.
+         *
+         * Once status becomes "cancelled", the booking
+         * is no longer considered an active booking by
+         * the availability system, so the appointment
+         * slot becomes available again.
+         */
+        const {
+          data: cancelledBooking,
+          error:
+            cancelError,
+        } = await db
+          .from("bookings")
+          .update({
+            status:
+              "cancelled",
+          })
+          .eq(
+            "id",
+            booking.id
+          )
+          .eq(
+            "access_token",
+            cancelToken
+          )
+          .in(
+            "status",
+            cancellableStatuses
+          )
+          .select(
+            "id,status,reference_code"
+          )
+          .maybeSingle();
+
+        if (
+          cancelError
+        ) {
+          throw cancelError;
+        }
+
+        if (
+          !cancelledBooking
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "This booking could not be cancelled because its status has already changed. Please refresh the page.",
+            },
+            {
+              status: 409,
+            }
+          );
+        }
+
+        return NextResponse.json({
+          ok: true,
+
+          status:
+            "cancelled",
+
+          reference_code:
+            cancelledBooking.reference_code ||
+            booking.reference_code,
+        });
+      }
+    }
+
+    /*
+     * ============================================================
+     * EDIT EXISTING DRAFT
+     * ============================================================
+     */
+    if (isMultipart) {
+      const formData =
+        await request.formData();
+
+      const payloadRaw =
+        formData.get(
+          "payload"
+        );
+
+      const payloadText =
+        typeof payloadRaw ===
+        "string"
+          ? payloadRaw
+          : "";
+
+      if (!payloadText) {
+        return NextResponse.json(
+          {
+            error:
+              "Booking data is missing.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      let payload: any;
+
+      try {
+        payload =
+          JSON.parse(
+            payloadText
+          );
+      } catch {
+        return NextResponse.json(
+          {
+            error:
+              "Invalid booking data.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const editToken =
+        String(
+          payload.edit_token ||
+            ""
+        ).trim();
+
+      if (!editToken) {
+        return NextResponse.json(
+          {
+            error:
+              "Missing booking edit token.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        !payload.customer_name ||
+        !payload.mobile_number ||
+        !payload.email ||
+        !payload.preferred_date ||
+        !payload.preferred_time ||
+        !payload.terms_accepted ||
+        !Array.isArray(
+          payload.services
+        ) ||
+        !payload.services.length
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Required booking fields are missing.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      if (
+        !isValidDate(
+          payload.preferred_date
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Invalid appointment date.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const normalizedPreferredTime =
+        normalizeTime(
+          payload.preferred_time
+        );
+
+      if (
+        !normalizedPreferredTime
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Invalid appointment time. Please choose one of the available times.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const db =
+        supabaseAdmin();
+
+      const {
+        data: existingBooking,
+        error:
+          existingBookingError,
+      } = await db
+        .from("bookings")
+        .select(
+          `
+          id,
+          status,
+          access_token
+          `
+        )
+        .eq(
+          "access_token",
+          editToken
+        )
+        .maybeSingle();
+
+      if (
+        existingBookingError
+      ) {
+        throw existingBookingError;
+      }
+
+      if (
+        !existingBooking
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Booking not found.",
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      if (
+        existingBooking.status !==
+        "draft"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "This booking can no longer be edited.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const inspirationFiles =
+        formData
+          .getAll(
+            "inspiration"
+          )
+          .filter(
+            (
+              item
+            ): item is File =>
+              item instanceof File
+          );
+
+      if (
+        inspirationFiles.length >
+        MAX_INSPIRATION_FILES
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Maximum 8 inspiration images.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      for (
+        const file of
+          inspirationFiles
+      ) {
+        if (
+          file.size >
+          MAX_IMAGE_MB *
+            1024 *
+            1024
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Each inspiration image must be 8MB or smaller.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        if (
+          !IMAGE_TYPES.has(
+            file.type
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Invalid inspiration file type.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+      }
+
+      const selectedServices: SelectedServiceInput[] =
+        payload.services.map(
+          (
+            item: any
+          ) => ({
+            service_id:
+              String(
+                item.service_id
+              ),
+
+            variation_id:
+              item.variation_id
+                ? String(
+                    item.variation_id
+                  )
+                : null,
+          })
+        );
+
+      const {
+        resolvedServices,
+        total: baseTotal,
+        duration,
+      } =
+        await resolveServices(
+          db,
+          selectedServices
+        );
+
+      const promoChoice =
+        String(
+          payload.promo_choice ||
+            ""
+        );
+
+      if (!promoChoice) {
+        return NextResponse.json(
+          {
+            error:
+              "Please choose a promo or discount option.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      let promoId:
+        | string
+        | null = null;
+
+      let promoName =
+        "Not Applicable";
+
+      let discount = 0;
+
+      const isFirstTime =
+        promoChoice ===
+        "first_time";
+
+      const isStudentPwdSc =
+        promoChoice ===
+        "student_pwd_sc";
+
+      const isReferral =
+        promoChoice ===
+        "referral";
+
+      const discountCategory =
+        String(
+          payload.discount_category ||
+            ""
+        ).toLowerCase();
+
+      if (
+        promoChoice.startsWith(
+          "promo:"
+        )
+      ) {
+        promoId =
+          promoChoice.slice(
+            6
+          );
+
+        if (!promoId) {
+          return NextResponse.json(
+            {
+              error:
+                "Invalid promo selection.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        const {
+          data: promo,
+          error:
+            promoError,
+        } =
+          await db
+            .from("promos")
+            .select(
+              "id,name,description,discount_type,discount_value,active"
+            )
+            .eq(
+              "id",
+              promoId
+            )
+            .eq(
+              "active",
+              true
+            )
+            .single();
+
+        if (
+          promoError ||
+          !promo
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "That current promo is no longer available.",
+            },
+            {
+              status: 409,
+            }
+          );
+        }
+
+        promoName =
+          String(
+            promo.name
+          );
+
+        discount =
+          calculatePromoDiscount(
+            promo,
+            baseTotal
+          );
+      }
+
+      if (
+        isFirstTime
+      ) {
+        promoName =
+          "First-time Booking Discount";
+
+        discount =
+          baseTotal * 0.05;
+      }
+
+      if (
+        isStudentPwdSc
+      ) {
+        if (
+          ![
+            "student",
+            "pwd",
+            "senior_citizen",
+          ].includes(
+            discountCategory
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Please select whether the discount is for a Student, PWD, or Senior Citizen.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        discount =
+          baseTotal * 0.05;
+
+        if (
+          discountCategory ===
+          "student"
+        ) {
+          promoName =
+            "Student / PWD / SC Discount — Student";
+        } else if (
+          discountCategory ===
+          "pwd"
+        ) {
+          promoName =
+            "Student / PWD / SC Discount — PWD";
+        } else {
+          promoName =
+            "Student / PWD / SC Discount — Senior Citizen";
+        }
+
+        const validId =
+          formData.get(
+            "student_valid_id"
+          );
+
+        const keepExistingValidId =
+          Boolean(
+            payload.keep_existing_student_id
+          );
+
+        if (
+          !keepExistingValidId &&
+          !(
+            validId instanceof File ||
+            validId?.size > 0
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Student / PWD / SC Discount requires a valid ID.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        if (
+          validId instanceof File &&
+          validId.size > 0
+        ) {
+          if (
+            validId.size >
+            MAX_STUDENT_FILE_MB *
+              1024 *
+              1024
+          ) {
+            return NextResponse.json(
+              {
+                error:
+                  "Student verification files must be 8MB or smaller.",
+              },
+              {
+                status: 400,
+              }
+            );
+          }
+
+          if (
+            !STUDENT_FILE_TYPES.has(
+              validId.type
+            )
+          ) {
+            return NextResponse.json(
+              {
+                error:
+                  "Student verification files must be JPG, PNG, HEIC, or PDF.",
+              },
+              {
+                status: 400,
+              }
+            );
+          }
+        }
+
+        const registration =
+          formData.get(
+            "student_registration"
+          );
+
+        if (
+          discountCategory ===
+            "student" &&
+          registration instanceof File &&
+          registration.size > 0
+        ) {
+          if (
+            registration.size >
+            MAX_STUDENT_FILE_MB *
+              1024 *
+              1024
+          ) {
+            return NextResponse.json(
+              {
+                error:
+                  "Student verification files must be 8MB or smaller.",
+              },
+              {
+                status: 400,
+              }
+            );
+          }
+
+          if (
+            !STUDENT_FILE_TYPES.has(
+              registration.type
+            )
+          ) {
+            return NextResponse.json(
+              {
+                error:
+                  "Student verification files must be JPG, PNG, HEIC, or PDF.",
+              },
+              {
+                status: 400,
+              }
+            );
+          }
+        }
+      }
+
+      if (
+        isReferral
+      ) {
+        const referralName =
+          String(
+            payload.referral_name ||
+              ""
+          ).trim();
+
+        if (!referralName) {
+          return NextResponse.json(
+            {
+              error:
+                "Please enter the name of the person who referred you.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        promoName =
+          `Referral Program — Referred by: ${referralName.slice(
+            0,
+            120
+          )}`;
+      }
+
+      if (
+        promoChoice ===
+        "none"
+      ) {
+        promoName =
+          "Not Applicable";
+
+        discount = 0;
+      }
+
+      discount =
+        Math.max(
+          0,
+          Math.min(
+            Number(
+              discount || 0
+            ),
+            baseTotal
+          )
+        );
+
+      discount =
+        Math.round(
+          discount * 100
+        ) / 100;
+
+      const availability =
+        await validateSelectedSlot(
+          request,
+          {
+            date:
+              payload.preferred_date,
+
+            selectedTime:
+              payload.preferred_time,
+
+            duration,
+          }
+        );
+
+      if (
+        !availability.ok
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              availability.error,
+          },
+          {
+            status: 409,
+          }
+        );
+      }
+
+      const {
+        error:
+          updateBookingError,
+      } =
+        await db
+          .from("bookings")
+          .update({
+            customer_name:
+              String(
+                payload.customer_name
+              ).slice(
+                0,
+                120
+              ),
+
+            email:
+              String(
+                payload.email
+              ).slice(
+                0,
+                254
+              ),
+
+            mobile_number:
+              String(
+                payload.mobile_number
+              ).slice(
+                0,
+                40
+              ),
+
+            social_handle:
+              String(
+                payload.social_handle ||
+                  ""
+              ).slice(
+                0,
+                120
+              ),
+
+            preferred_date:
+              payload.preferred_date,
+
+            preferred_time:
+              normalizedPreferredTime,
+
+            removal:
+              String(
+                payload.removal ||
+                  "None"
+              ).slice(
+                0,
+                120
+              ),
+
+            promo_id:
+              promoId,
+
+            promo_name:
+              promoName,
+
+            discount_amount:
+              discount,
+
+            discount_verified:
+              false,
+
+            discount_verified_at:
+              null,
+
+            discount_category:
+              isStudentPwdSc
+                ? discountCategory
+                : null,
+
+            referral_name:
+              isReferral
+                ? String(
+                    payload.referral_name ||
+                      ""
+                  ).slice(
+                    0,
+                    120
+                  )
+                : null,
+
+            notes:
+              String(
+                payload.notes ||
+                  ""
+              ).slice(
+                0,
+                3000
+              ),
+
+            terms_accepted:
+              true,
+
+            status:
+              "draft",
+
+            estimated_total:
+              baseTotal,
+
+            inspiration_count:
+              inspirationFiles.length ||
+              Number(
+                payload.existing_inspiration_count ||
+                  0
+              ),
+          })
+          .eq(
+            "id",
+            existingBooking.id
+          );
+
+      if (
+        updateBookingError
+      ) {
+        throw updateBookingError;
+      }
+
+      const {
+        error:
+          deleteServicesError,
+      } =
+        await db
+          .from(
+            "booking_services"
+          )
+          .delete()
+          .eq(
+            "booking_id",
+            existingBooking.id
+          );
+
+      if (
+        deleteServicesError
+      ) {
+        throw deleteServicesError;
+      }
+
+      const bookingServiceRows =
+        resolvedServices.map(
+          (
+            item
+          ) => ({
+            booking_id:
+              existingBooking.id,
+
+            service_id:
+              item.service_id,
+
+            variation_id:
+              item.variation_id,
+
+            service_name:
+              item.service_name,
+
+            variation_name:
+              item.variation_name,
+
+            price:
+              item.price,
+
+            duration_minutes:
+              item.duration_minutes,
+          })
+        );
+
+      const {
+        error:
+          insertServicesError,
+      } =
+        await db
+          .from(
+            "booking_services"
+          )
+          .insert(
+            bookingServiceRows
+          );
+
+      if (
+        insertServicesError
+      ) {
+        throw insertServicesError;
+      }
+
+      if (
+        inspirationFiles.length >
+        0
+      ) {
+        const {
+          data: oldFiles,
+        } = await db
+          .from(
+            "booking_files"
+          )
+          .select(
+            "id,path,bucket"
+          )
+          .eq(
+            "booking_id",
+            existingBooking.id
+          )
+          .eq(
+            "kind",
+            "inspiration"
+          );
+
+        if (
+          oldFiles?.length
+        ) {
+          for (
+            const oldFile of
+              oldFiles
+          ) {
+            try {
+              await db.storage
+                .from(
+                  oldFile.bucket
+                )
+                .remove([
+                  oldFile.path,
+                ]);
+            } catch (
+              storageError
+            ) {
+              console.error(
+                "Unable to remove old inspiration file:",
+                storageError
+              );
+            }
+          }
+
+          const {
+            error:
+              deleteOldFilesError,
+          } =
+            await db
+              .from(
+                "booking_files"
+              )
+              .delete()
+              .eq(
+                "booking_id",
+                existingBooking.id
+              )
+              .eq(
+                "kind",
+                "inspiration"
+              );
+
+          if (
+            deleteOldFilesError
+          ) {
+            throw deleteOldFilesError;
+          }
+        }
+
+        for (
+          const file of
+            inspirationFiles
+        ) {
+          const path =
+            `${existingBooking.id}/${makeToken(
+              10
+            )}-${sanitizeFilename(
+              file.name
+            )}`;
+
+          const {
+            error:
+              uploadError,
+          } =
+            await db.storage
+              .from(
+                "nail-inspiration"
+              )
+              .upload(
+                path,
+                await file.arrayBuffer(),
+                {
+                  contentType:
+                    file.type,
+
+                  upsert:
+                    false,
+                }
+              );
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          const {
+            error:
+              recordError,
+          } =
+            await db
+              .from(
+                "booking_files"
+              )
+              .insert({
+                booking_id:
+                  existingBooking.id,
+
+                bucket:
+                  "nail-inspiration",
+
+                path,
+
+                kind:
+                  "inspiration",
+              });
+
+          if (recordError) {
+            throw recordError;
+          }
+        }
+      }
+
+      if (
+        isStudentPwdSc
+      ) {
+        const validId =
+          formData.get(
+            "student_valid_id"
+          );
+
+        const registration =
+          formData.get(
+            "student_registration"
+          );
+
+        const studentDocuments: Array<{
+          file: File;
+          kind: string;
+        }> = [];
+
+        if (
+          validId instanceof File &&
+          validId.size > 0
+        ) {
+          studentDocuments.push({
+            file: validId,
+            kind:
+              "student_valid_id",
+          });
+        }
+
+        if (
+          discountCategory ===
+            "student" &&
+          registration instanceof File &&
+          registration.size > 0
+        ) {
+          studentDocuments.push({
+            file: registration,
+            kind:
+              "student_registration",
+          });
+        }
+
+        for (
+          const document of
+            studentDocuments
+        ) {
+          const {
+            data: oldFiles,
+          } = await db
+            .from(
+              "booking_files"
+            )
+            .select(
+              "id,path,bucket"
+            )
+            .eq(
+              "booking_id",
+              existingBooking.id
+            )
+            .eq(
+              "kind",
+              document.kind
+            );
+
+          if (
+            oldFiles?.length
+          ) {
+            for (
+              const oldFile of
+                oldFiles
+            ) {
+              try {
+                await db.storage
+                  .from(
+                    oldFile.bucket
+                  )
+                  .remove([
+                    oldFile.path,
+                  ]);
+              } catch (
+                storageError
+              ) {
+                console.error(
+                  "Unable to remove old student file:",
+                  storageError
+                );
+              }
+            }
+
+            const {
+              error:
+                deleteOldStudentError,
+            } =
+              await db
+                .from(
+                  "booking_files"
+                )
+                .delete()
+                .eq(
+                  "booking_id",
+                  existingBooking.id
+                )
+                .eq(
+                  "kind",
+                  document.kind
+                );
+
+            if (
+              deleteOldStudentError
+            ) {
+              throw deleteOldStudentError;
+            }
+          }
+
+          const path =
+            `${existingBooking.id}/student/${makeToken(
+              10
+            )}-${sanitizeFilename(
+              document.file.name
+            )}`;
+
+          const {
+            error:
+              uploadError,
+          } =
+            await db.storage
+              .from(
+                "nail-inspiration"
+              )
+              .upload(
+                path,
+                await document.file.arrayBuffer(),
+                {
+                  contentType:
+                    document.file.type,
+
+                  upsert:
+                    false,
+                }
+              );
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          const {
+            error:
+              recordError,
+          } =
+            await db
+              .from(
+                "booking_files"
+              )
+              .insert({
+                booking_id:
+                  existingBooking.id,
+
+                bucket:
+                  "nail-inspiration",
+
+                path,
+
+                kind:
+                  document.kind,
+              });
+
+          if (recordError) {
+            throw recordError;
+          }
+        }
+      }
+
+      return NextResponse.json({
+        token:
+          existingBooking.access_token,
+      });
+    }
+
+    /*
+     * ============================================================
+     * SUBMIT EXISTING DRAFT
+     * ============================================================
+     */
+
     const token =
       new URL(
         request.url
@@ -1809,7 +3328,7 @@ export async function PATCH(
     error: any
   ) {
     console.error(
-      "Submit booking error:",
+      "Booking API error:",
       error
     );
 
@@ -1817,7 +3336,7 @@ export async function PATCH(
       {
         error:
           error?.message ||
-          "Unable to submit booking.",
+          "Unable to process booking.",
       },
       {
         status: 500,

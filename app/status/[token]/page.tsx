@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 import StatusAutoRefresh from "@/components/StatusAutoRefresh";
+import CancelBookingButton from "@/components/CancelBookingButton";
 
 const STATUS_WINDOW_DAYS = 5;
 
@@ -286,14 +287,45 @@ export default async function Status({
   const content = getStatusContent(status);
 
   /*
-   * VIEW CONFIRMATION IS ONLY AVAILABLE
-   * FOR CONFIRMED BOOKINGS.
+   * VIEW CONFIRMATION
    *
-   * COMPLETED BOOKINGS DO NOT SHOW
-   * VIEW CONFIRMATION.
+   * Only confirmed bookings can view
+   * their confirmation.
    */
   const canViewConfirmation =
     status === "confirmed";
+
+  /*
+   * CUSTOMER CANCELLATION
+   *
+   * Pending:
+   * Customer may cancel their request.
+   *
+   * Approved:
+   * Customer may cancel while the
+   * 3-hour payment window is active.
+   *
+   * Payment submitted:
+   * Do not allow cancellation while
+   * payment proof is being reviewed.
+   *
+   * Confirmed:
+   * Customer may cancel their appointment.
+   *
+   * Completed / cancelled / rejected:
+   * No cancellation button.
+   */
+  const canCancel =
+    status === "pending" ||
+    status === "approved" ||
+    status === "confirmed";
+
+  const cancelLabel =
+    status === "pending"
+      ? "Cancel Request"
+      : status === "approved"
+        ? "Cancel Request"
+        : "Cancel Booking";
 
   const appointmentText =
     booking.preferred_date || "—";
@@ -379,7 +411,7 @@ export default async function Status({
 
               <div className="status-summary-item">
                 <span>
-                  Reference
+                  Booking ID
                 </span>
 
                 <strong>
@@ -449,6 +481,14 @@ export default async function Status({
                   Proceed to Payment
                 </Link>
               </>
+            )}
+
+            {/* PENDING / APPROVED / CONFIRMED CANCELLATION */}
+            {canCancel && (
+              <CancelBookingButton
+                token={token}
+                label={cancelLabel}
+              />
             )}
 
             {/* CONFIRMED ONLY */}

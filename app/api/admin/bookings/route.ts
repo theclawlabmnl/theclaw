@@ -969,6 +969,36 @@ async function validateAvailability(
   }
 }
 
+async function getBookingServices(
+  db: ReturnType<typeof supabaseAdmin>,
+  bookingId: string
+) {
+  const {
+    data,
+    error,
+  } = await db
+    .from("booking_services")
+    .select(
+      "service_name,variation_name,price"
+    )
+    .eq(
+      "booking_id",
+      bookingId
+    )
+    .order(
+      "id",
+      {
+        ascending: true,
+      }
+    );
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+}
+
 export async function POST(
   request: NextRequest
 ) {
@@ -1071,6 +1101,73 @@ export async function POST(
         .eq(
           "discount_verified",
           false
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.redirect(
+        new URL(
+          `/admin/bookings/${id}`,
+          request.url
+        )
+      );
+    }
+
+    if (
+      action ===
+      "reject_discount"
+    ) {
+      const {
+        data: booking,
+        error:
+          bookingError,
+      } = await db
+        .from("bookings")
+        .select(
+          "id,promo_name,discount_verified"
+        )
+        .eq(
+          "id",
+          id
+        )
+        .maybeSingle();
+
+      if (
+        bookingError
+      ) {
+        throw bookingError;
+      }
+
+      if (!booking) {
+        return jsonError(
+          "Booking not found.",
+          404
+        );
+      }
+
+      if (!booking.promo_name) {
+        return jsonError(
+          "No discount was selected for this booking."
+        );
+      }
+
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update({
+          discount_verified:
+            false,
+          discount_verified_at:
+            null,
+          discount_amount:
+            0,
+        })
+        .eq(
+          "id",
+          id
         );
 
       if (error) {
@@ -1279,12 +1376,6 @@ export async function PATCH(
         "Booking ID is required."
       );
     }
-
-    /*
-     * --------------------------------------------------------
-     * DELETE BOOKING
-     * --------------------------------------------------------
-     */
 
     if (
       action === "delete"
@@ -1522,15 +1613,6 @@ export async function PATCH(
       });
     }
 
-    /*
-     * --------------------------------------------------------
-     * RESET BOOKING
-     *
-     * IMPORTANT:
-     * Reset is handled BEFORE the normal booking lookup.
-     * --------------------------------------------------------
-     */
-
     if (
       action === "reset"
     ) {
@@ -1653,12 +1735,6 @@ export async function PATCH(
           resetStatus,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * EDIT BOOKING
-     * --------------------------------------------------------
-     */
 
     if (
       action === "edit"
@@ -1827,8 +1903,14 @@ export async function PATCH(
             removal || null,
           notes:
             notes || null,
+
+          // Keep estimated_total as the
+          // original service subtotal.
+          // discount_amount stores the
+          // separate discount.
           estimated_total:
-            finalTotal,
+            calculated.total,
+
           discount_amount:
             discountAmount,
         })
@@ -1914,12 +1996,6 @@ export async function PATCH(
           calculated.services,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * RECORD PAYMENT
-     * --------------------------------------------------------
-     */
 
     if (
       action ===
@@ -2109,19 +2185,13 @@ export async function PATCH(
       });
     }
 
-    /*
-     * --------------------------------------------------------
-     * NORMAL BOOKING LOOKUP
-     * --------------------------------------------------------
-     */
-
     const {
       data: booking,
       error: bookingError,
     } = await db
       .from("bookings")
       .select(
-        "id,status,reference_code,customer_name,email,promo_name,estimated_total,discount_verified,approved_at"
+        "id,status,reference_code,access_token,customer_name,email,promo_name,estimated_total,discount_amount,discount_verified,approved_at,preferred_date,preferred_time,removal,notes"
       )
       .eq(
         "id",
@@ -2144,12 +2214,6 @@ export async function PATCH(
 
     const nowIso =
       now.toISOString();
-
-    /*
-     * --------------------------------------------------------
-     * ADMIN OVERRIDE
-     * --------------------------------------------------------
-     */
 
     if (
       action ===
@@ -2249,6 +2313,7 @@ export async function PATCH(
       }
 
       const {
+        data: updatedOverrideBooking,
         error,
       } = await db
         .from("bookings")
@@ -2256,10 +2321,21 @@ export async function PATCH(
         .eq(
           "id",
           id
-        );
+        )
+        .select(
+          "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
+        )
+        .maybeSingle();
 
       if (error) {
         throw error;
+      }
+
+      if (!updatedOverrideBooking) {
+        return jsonError(
+          "Booking status could not be updated.",
+          409
+        );
       }
 
       if (
@@ -2267,17 +2343,39 @@ export async function PATCH(
         "completed"
       ) {
         try {
+          const services =
+            await getBookingServices(
+              db,
+              id
+            );
+
           await notifyBookingCompleted({
             booking: {
               id:
-                booking.id,
+                updatedOverrideBooking.id,
               reference_code:
-                booking.reference_code,
+                updatedOverrideBooking.reference_code,
+              access_token:
+                updatedOverrideBooking.access_token,
               customer_name:
-                booking.customer_name,
+                updatedOverrideBooking.customer_name,
               email:
-                booking.email,
+                updatedOverrideBooking.email,
+              preferred_date:
+                updatedOverrideBooking.preferred_date,
+              preferred_time:
+                updatedOverrideBooking.preferred_time,
+              estimated_total:
+                updatedOverrideBooking.estimated_total,
+              discount_amount:
+                updatedOverrideBooking.discount_amount,
+              removal:
+                updatedOverrideBooking.removal,
+              notes:
+                updatedOverrideBooking.notes,
             },
+            services:
+              services || [],
           });
         } catch (
           notificationError
@@ -2295,12 +2393,6 @@ export async function PATCH(
           overrideStatus,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * APPROVE
-     * --------------------------------------------------------
-     */
 
     if (
       action === "approve"
@@ -2324,6 +2416,7 @@ export async function PATCH(
         ).toISOString();
 
       const {
+        data: updatedBooking,
         error,
       } = await db
         .from("bookings")
@@ -2340,10 +2433,21 @@ export async function PATCH(
         .eq(
           "status",
           "pending"
-        );
+        )
+        .select(
+          "id,status,approved_at"
+        )
+        .maybeSingle();
 
       if (error) {
         throw error;
+      }
+
+      if (!updatedBooking) {
+        return jsonError(
+          "Booking could not be approved. It may have already been updated.",
+          409
+        );
       }
 
       return NextResponse.json({
@@ -2358,12 +2462,6 @@ export async function PATCH(
           PAYMENT_DEADLINE_HOURS,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * REJECT
-     * --------------------------------------------------------
-     */
 
     if (
       action === "reject"
@@ -2384,6 +2482,7 @@ export async function PATCH(
       }
 
       const {
+        data: rejectedBooking,
         error,
       } = await db
         .from("bookings")
@@ -2401,10 +2500,21 @@ export async function PATCH(
             "pending",
             "approved",
           ]
-        );
+        )
+        .select(
+          "id,status"
+        )
+        .maybeSingle();
 
       if (error) {
         throw error;
+      }
+
+      if (!rejectedBooking) {
+        return jsonError(
+          "Booking could not be rejected. It may have already been updated.",
+          409
+        );
       }
 
       return NextResponse.json({
@@ -2413,12 +2523,6 @@ export async function PATCH(
           "rejected",
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * CANCEL
-     * --------------------------------------------------------
-     */
 
     if (
       action === "cancel"
@@ -2480,6 +2584,7 @@ export async function PATCH(
       }
 
       const {
+        data: cancelledBooking,
         error,
       } = await db
         .from("bookings")
@@ -2503,10 +2608,21 @@ export async function PATCH(
         .neq(
           "status",
           "cancelled"
-        );
+        )
+        .select(
+          "id,status"
+        )
+        .maybeSingle();
 
       if (error) {
         throw error;
+      }
+
+      if (!cancelledBooking) {
+        return jsonError(
+          "Booking could not be cancelled. It may have already been cancelled.",
+          409
+        );
       }
 
       return NextResponse.json({
@@ -2524,12 +2640,6 @@ export async function PATCH(
           nowIso,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * VERIFY DISCOUNT
-     * --------------------------------------------------------
-     */
 
     if (
       action ===
@@ -2560,6 +2670,7 @@ export async function PATCH(
         ) / 100;
 
       const {
+        data: verifiedBooking,
         error,
       } = await db
         .from("bookings")
@@ -2578,10 +2689,21 @@ export async function PATCH(
         .eq(
           "discount_verified",
           false
-        );
+        )
+        .select(
+          "id,discount_verified,discount_verified_at,discount_amount"
+        )
+        .maybeSingle();
 
       if (error) {
         throw error;
+      }
+
+      if (!verifiedBooking) {
+        return jsonError(
+          "Discount could not be verified. It may have already been updated.",
+          409
+        );
       }
 
       return NextResponse.json({
@@ -2597,11 +2719,47 @@ export async function PATCH(
       });
     }
 
-    /*
-     * --------------------------------------------------------
-     * UNVERIFY DISCOUNT
-     * --------------------------------------------------------
-     */
+    if (
+      action ===
+      "reject_discount"
+    ) {
+      if (!booking.promo_name) {
+        return jsonError(
+          "No discount was selected for this booking."
+        );
+      }
+
+      const {
+        error,
+      } = await db
+        .from("bookings")
+        .update({
+          discount_verified:
+            false,
+          discount_verified_at:
+            null,
+          discount_amount:
+            0,
+        })
+        .eq(
+          "id",
+          id
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      return NextResponse.json({
+        ok: true,
+        discount_verified:
+          false,
+        discount_verified_at:
+          null,
+        discount_amount:
+          0,
+      });
+    }
 
     if (
       action ===
@@ -2638,12 +2796,6 @@ export async function PATCH(
           0,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * VERIFY PAYMENT
-     * --------------------------------------------------------
-     */
 
     if (
       action ===
@@ -2703,6 +2855,7 @@ export async function PATCH(
       }
 
       const {
+        data: verifiedPayment,
         error,
       } = await db
         .from("payments")
@@ -2719,10 +2872,21 @@ export async function PATCH(
         .eq(
           "booking_id",
           id
-        );
+        )
+        .select(
+          "id,status,verified_at"
+        )
+        .maybeSingle();
 
       if (error) {
         throw error;
+      }
+
+      if (!verifiedPayment) {
+        return jsonError(
+          "Payment could not be verified. It may have already been updated.",
+          409
+        );
       }
 
       return NextResponse.json({
@@ -2735,12 +2899,6 @@ export async function PATCH(
           nowIso,
       });
     }
-
-    /*
-     * --------------------------------------------------------
-     * MARK COMPLETED
-     * --------------------------------------------------------
-     */
 
     if (
       action === "complete"
@@ -2755,7 +2913,9 @@ export async function PATCH(
       }
 
       const {
-        error,
+        data: updatedBooking,
+        error:
+          completionUpdateError,
       } = await db
         .from("bookings")
         .update({
@@ -2771,24 +2931,59 @@ export async function PATCH(
         .eq(
           "status",
           "confirmed"
-        );
+        )
+        .select(
+          "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
+        )
+        .maybeSingle();
 
-      if (error) {
-        throw error;
+      if (
+        completionUpdateError
+      ) {
+        throw completionUpdateError;
+      }
+
+      if (!updatedBooking) {
+        return jsonError(
+          "Booking could not be marked completed. It may have already been completed.",
+          409
+        );
       }
 
       try {
+        const services =
+          await getBookingServices(
+            db,
+            id
+          );
+
         await notifyBookingCompleted({
           booking: {
             id:
-              booking.id,
+              updatedBooking.id,
             reference_code:
-              booking.reference_code,
+              updatedBooking.reference_code,
+            access_token:
+              updatedBooking.access_token,
             customer_name:
-              booking.customer_name,
+              updatedBooking.customer_name,
             email:
-              booking.email,
+              updatedBooking.email,
+            preferred_date:
+              updatedBooking.preferred_date,
+            preferred_time:
+              updatedBooking.preferred_time,
+            estimated_total:
+              updatedBooking.estimated_total,
+            discount_amount:
+              updatedBooking.discount_amount,
+            removal:
+              updatedBooking.removal,
+            notes:
+              updatedBooking.notes,
           },
+          services:
+            services || [],
         });
       } catch (
         notificationError

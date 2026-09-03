@@ -31,6 +31,7 @@ async function getAdminDb() {
 
   const {
     data: admin,
+    error,
   } =
     await db
       .from("admins")
@@ -44,6 +45,15 @@ async function getAdminDb() {
         true
       )
       .maybeSingle();
+
+  if (error) {
+    console.error(
+      "Admin lookup error:",
+      error
+    );
+
+    return null;
+  }
 
   return admin
     ? db
@@ -147,7 +157,9 @@ export async function POST(
           error:
             "Unauthorized",
         },
-        { status: 401 }
+        {
+          status: 401,
+        }
       );
     }
 
@@ -178,13 +190,20 @@ export async function POST(
   } catch (
     error: any
   ) {
+    console.error(
+      "Admin promos POST error:",
+      error
+    );
+
     return NextResponse.json(
       {
         error:
           error?.message ||
           "Unable to create promo.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
@@ -202,7 +221,9 @@ export async function PATCH(
           error:
             "Unauthorized",
         },
-        { status: 401 }
+        {
+          status: 401,
+        }
       );
     }
 
@@ -220,7 +241,9 @@ export async function PATCH(
           error:
             "Promo ID is required.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
@@ -267,11 +290,14 @@ export async function PATCH(
           error:
             "No changes supplied.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
     const {
+      data: updatedPromo,
       error,
     } = await db
       .from("promos")
@@ -281,25 +307,145 @@ export async function PATCH(
       .eq(
         "id",
         id
-      );
+      )
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       throw error;
     }
 
+    if (!updatedPromo) {
+      return NextResponse.json(
+        {
+          error:
+            "Promo not found.",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
     return NextResponse.json({
       ok: true,
+      id,
     });
   } catch (
     error: any
   ) {
+    console.error(
+      "Admin promos PATCH error:",
+      error
+    );
+
     return NextResponse.json(
       {
         error:
           error?.message ||
           "Unable to update promo.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
+    );
+  }
+}
+
+export async function DELETE(
+  req: NextRequest
+) {
+  try {
+    const db =
+      await getAdminDb();
+
+    if (!db) {
+      return NextResponse.json(
+        {
+          error:
+            "Unauthorized",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const body =
+      await req
+        .json()
+        .catch(
+          () => ({})
+        );
+
+    const id =
+      String(
+        body.id || ""
+      ).trim();
+
+    if (!id) {
+      return NextResponse.json(
+        {
+          error:
+            "Promo ID is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const {
+      data: deletedPromo,
+      error,
+    } = await db
+      .from("promos")
+      .delete()
+      .eq(
+        "id",
+        id
+      )
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!deletedPromo) {
+      return NextResponse.json(
+        {
+          error:
+            "Promo not found.",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      deleted: true,
+      id,
+    });
+  } catch (
+    error: any
+  ) {
+    console.error(
+      "Admin promos DELETE error:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        error:
+          error?.message ||
+          "Unable to delete promo.",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }

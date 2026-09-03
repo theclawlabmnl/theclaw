@@ -18,14 +18,12 @@ export default function PromoManager({
 }) {
   const [busy, setBusy] = useState(false);
 
-  const [newName, setNewName] = useState("SEPTEM-BER PROMO");
-  const [newDescription, setNewDescription] = useState(
-    "₱1,099 ANY DESIGN — Soft Gel + Soft BIAB\n₱1,399 ANY DESIGN — Hard Gel Extensions + Hard Builder Gel\nRemoval is not included."
-  );
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [newDiscountType, setNewDiscountType] = useState<
     "fixed" | "percent"
   >("fixed");
-  const [newDiscountValue, setNewDiscountValue] = useState("0");
+  const [newDiscountValue, setNewDiscountValue] = useState("");
 
   const request = async (
     method: "POST" | "PATCH" | "DELETE",
@@ -101,15 +99,19 @@ export default function PromoManager({
 
         <div className="field">
           <label>Name</label>
+
           <input
             value={newName}
-            onChange={(event) => setNewName(event.target.value)}
+            onChange={(event) =>
+              setNewName(event.target.value)
+            }
             placeholder="e.g. September Promo"
           />
         </div>
 
         <div className="field">
           <label>Description</label>
+
           <textarea
             value={newDescription}
             onChange={(event) =>
@@ -127,12 +129,19 @@ export default function PromoManager({
               value={newDiscountType}
               onChange={(event) =>
                 setNewDiscountType(
-                  event.target.value as "fixed" | "percent"
+                  event.target.value as
+                    | "fixed"
+                    | "percent"
                 )
               }
             >
-              <option value="fixed">Fixed amount</option>
-              <option value="percent">Percentage</option>
+              <option value="fixed">
+                Fixed amount
+              </option>
+
+              <option value="percent">
+                Percentage
+              </option>
             </select>
           </div>
 
@@ -144,8 +153,11 @@ export default function PromoManager({
               min="0"
               value={newDiscountValue}
               onChange={(event) =>
-                setNewDiscountValue(event.target.value)
+                setNewDiscountValue(
+                  event.target.value
+                )
               }
+              placeholder="0"
             />
           </div>
         </div>
@@ -163,23 +175,33 @@ export default function PromoManager({
         {promos.length === 0 ? (
           <div className="card">
             <p className="muted">
-              No promos yet. Create your first promotion above.
+              No promos yet. Create your first
+              promotion above.
             </p>
           </div>
         ) : (
           promos.map((promo) => (
-            <div className="card promo-admin-card" key={promo.id}>
+            <div
+              className="card promo-admin-card"
+              key={promo.id}
+            >
               <div className="promo-admin-header">
                 <div>
-                  <div className="kicker">Promotion</div>
+                  <div className="kicker">
+                    Promotion
+                  </div>
 
-                  <h3 className="serif">{promo.name}</h3>
+                  <h3 className="serif">
+                    {promo.name}
+                  </h3>
                 </div>
 
                 <button
                   className="btn danger small"
                   disabled={busy}
-                  onClick={() => deletePromo(promo.id)}
+                  onClick={() =>
+                    deletePromo(promo.id)
+                  }
                 >
                   Delete
                 </button>
@@ -202,10 +224,13 @@ export default function PromoManager({
                 <label>Description</label>
 
                 <textarea
-                  defaultValue={promo.description || ""}
+                  defaultValue={
+                    promo.description || ""
+                  }
                   onBlur={(event) =>
                     updatePromo(promo.id, {
-                      description: event.target.value,
+                      description:
+                        event.target.value,
                     })
                   }
                 />
@@ -216,7 +241,9 @@ export default function PromoManager({
                   <label>Discount type</label>
 
                   <select
-                    defaultValue={promo.discount_type}
+                    defaultValue={
+                      promo.discount_type
+                    }
                     onChange={(event) =>
                       updatePromo(promo.id, {
                         discount_type:
@@ -227,6 +254,7 @@ export default function PromoManager({
                     <option value="fixed">
                       Fixed amount
                     </option>
+
                     <option value="percent">
                       Percentage
                     </option>
@@ -239,11 +267,15 @@ export default function PromoManager({
                   <input
                     type="number"
                     min="0"
-                    defaultValue={promo.discount_value}
+                    defaultValue={
+                      promo.discount_value
+                    }
                     onBlur={(event) =>
                       updatePromo(promo.id, {
                         discount_value:
-                          Number(event.target.value) || 0,
+                          Number(
+                            event.target.value
+                          ) || 0,
                       })
                     }
                   />
@@ -253,10 +285,13 @@ export default function PromoManager({
               <label className="promo-active">
                 <input
                   type="checkbox"
-                  defaultChecked={promo.active}
+                  defaultChecked={
+                    promo.active
+                  }
                   onChange={(event) =>
                     updatePromo(promo.id, {
-                      active: event.target.checked,
+                      active:
+                        event.target.checked,
                     })
                   }
                 />{" "}
@@ -264,7 +299,9 @@ export default function PromoManager({
               </label>
 
               <div className="status-pill">
-                {promo.active ? "Active" : "Inactive"}
+                {promo.active
+                  ? "Active"
+                  : "Inactive"}
               </div>
             </div>
           ))
