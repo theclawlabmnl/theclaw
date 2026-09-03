@@ -324,32 +324,6 @@ export default async function AdminBookingEditPage({
 
           booking_services:
             booking.booking_services || [],
-
-          payments: payments.map(
-            (payment) => ({
-              id: payment.id,
-              method:
-                payment.method,
-              amount: Number(
-                payment.net_amount ??
-                  payment.amount ??
-                  0
-              ),
-              status:
-                payment.status,
-              verified_at:
-                payment.verified_at ||
-                null,
-              created_at:
-                payment.created_at ||
-                null,
-              payment_type:
-                payment.payment_type ||
-                null,
-              note:
-                payment.note || null,
-            })
-          ),
         }}
         services={services}
         removalOptions={removalOptions}
