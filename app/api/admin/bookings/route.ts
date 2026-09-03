@@ -34,6 +34,16 @@ const PAYMENT_METHODS = [
   "Other",
 ] as const;
 
+const ADMIN_OVERRIDE_STATUSES = [
+  "pending",
+  "approved",
+  "payment_submitted",
+  "confirmed",
+  "completed",
+  "cancelled",
+  "rejected",
+] as const;
+
 const PAYMENT_DEADLINE_HOURS = 3;
 
 const PAYMENT_DEADLINE_MS =
@@ -44,6 +54,18 @@ const PAYMENT_DEADLINE_REASON =
 
 const PAYMENT_DEADLINE_NOTE =
   "Booking was automatically cancelled because payment was not submitted within 3 hours of approval.";
+
+type Db = ReturnType<typeof supabaseAdmin>;
+
+function jsonError(
+  error: string,
+  status = 400
+) {
+  return NextResponse.json(
+    { error },
+    { status }
+  );
+}
 
 async function getAdminDb() {
   const session = await supabaseServer();
@@ -76,16 +98,6 @@ async function getAdminDb() {
   return admin ? db : null;
 }
 
-function jsonError(
-  error: string,
-  status = 400
-) {
-  return NextResponse.json(
-    { error },
-    { status }
-  );
-}
-
 function getPaymentDeadline(
   approvedAt: string | null | undefined
 ): Date | null {
@@ -115,13 +127,11 @@ function isPaymentDeadlineExpired(
     return false;
   }
 
-  return (
-    now.getTime() >= deadline.getTime()
-  );
+  return now.getTime() >= deadline.getTime();
 }
 
 async function expireOverdueApprovedBookings(
-  db: ReturnType<typeof supabaseAdmin>,
+  db: Db,
   now = new Date()
 ) {
   const nowIso = now.toISOString();
@@ -339,7 +349,7 @@ function overlaps(
 }
 
 async function calculateServicesTotal(
-  db: ReturnType<typeof supabaseAdmin>,
+  db: Db,
   servicesInput: unknown
 ) {
   if (!Array.isArray(servicesInput)) {
@@ -604,7 +614,7 @@ async function calculateServicesTotal(
 }
 
 async function validateAvailability(
-  db: ReturnType<typeof supabaseAdmin>,
+  db: Db,
   bookingId: string,
   date: string,
   time: string,
@@ -970,7 +980,7 @@ async function validateAvailability(
 }
 
 async function getBookingServices(
-  db: ReturnType<typeof supabaseAdmin>,
+  db: Db,
   bookingId: string
 ) {
   const {
@@ -999,6 +1009,1765 @@ async function getBookingServices(
   return data || [];
 }
 
+async function completeBooking(
+  db: Db,
+  id: string,
+  nowIso: string
+) {
+  const {
+    data: booking,
+    error: bookingError,
+  } = await db
+    .from("bookings")
+    .select(
+      "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
+    )
+    .eq(
+      "id",
+      id
+    )
+    .maybeSingle();
+
+  if (bookingError) {
+    throw bookingError;
+  }
+
+  if (!booking) {
+    return jsonError(
+      "Booking not found.",
+      404
+    );
+  }
+
+  if (
+    booking.status !==
+    "confirmed"
+  ) {
+    return jsonError(
+      "Only confirmed bookings can be marked completed."
+    );
+  }
+
+  const {
+    data: updatedBooking,
+    error:
+      completionUpdateError,
+  } = await db
+    .from("bookings")
+    .update({
+      status:
+        "completed",
+      completed_at:
+        nowIso,
+    })
+    .eq(
+      "id",
+      id
+    )
+    .eq(
+      "status",
+      "confirmed"
+    )
+    .select(
+      "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
+    )
+    .maybeSingle();
+
+  if (
+    completionUpdateError
+  ) {
+    throw completionUpdateError;
+  }
+
+  if (!updatedBooking) {
+    return jsonError(
+      "Booking could not be marked completed. It may have already been completed.",
+      409
+    );
+  }
+
+  try {
+    const services =
+      await getBookingServices(
+        db,
+        id
+      );
+
+    await notifyBookingCompleted({
+      booking: {
+        id:
+          updatedBooking.id,
+        reference_code:
+          updatedBooking.reference_code,
+        access_token:
+          updatedBooking.access_token,
+        customer_name:
+          updatedBooking.customer_name,
+        email:
+          updatedBooking.email,
+        preferred_date:
+          updatedBooking.preferred_date,
+        preferred_time:
+          updatedBooking.preferred_time,
+        estimated_total:
+          updatedBooking.estimated_total,
+        discount_amount:
+          updatedBooking.discount_amount,
+        removal:
+          updatedBooking.removal,
+        notes:
+          updatedBooking.notes,
+      },
+      services:
+        services || [],
+    });
+  } catch (
+    notificationError
+  ) {
+    console.error(
+      "Completed booking customer email failed:",
+      notificationError
+    );
+  }
+
+  const reviewUrl =
+    `/review?booking_id=${encodeURIComponent(
+      id
+    )}`;
+
+  return NextResponse.json({
+    ok: true,
+    status:
+      "completed",
+    completed_at:
+      nowIso,
+    review_url:
+      reviewUrl,
+  });
+}
+
+async function handleBookingAction(
+  db: Db,
+  request: NextRequest,
+  action: string,
+  body: any,
+  id: string
+) {
+  const {
+    data: booking,
+    error: bookingError,
+  } = await db
+    .from("bookings")
+    .select(
+      "id,status,reference_code,access_token,customer_name,email,promo_name,estimated_total,discount_amount,discount_verified,approved_at,preferred_date,preferred_time,removal,notes,down_payment"
+    )
+    .eq(
+      "id",
+      id
+    )
+    .maybeSingle();
+
+  if (
+    bookingError
+  ) {
+    throw bookingError;
+  }
+
+  if (!booking) {
+    return jsonError(
+      "Booking not found.",
+      404
+    );
+  }
+
+  const now =
+    new Date();
+
+  const nowIso =
+    now.toISOString();
+
+  /*
+   * APPROVE
+   *
+   * This is intentionally available to both POST and PATCH.
+   * The admin booking page commonly uses a form POST for
+   * the Approve button.
+   */
+  if (
+    action === "approve" ||
+    action === "approve_booking"
+  ) {
+    if (
+      booking.status !==
+      "pending"
+    ) {
+      return jsonError(
+        "Only pending bookings can be approved."
+      );
+    }
+
+    if (
+      !booking.preferred_date ||
+      !booking.preferred_time
+    ) {
+      return jsonError(
+        "Booking is missing its appointment date or time."
+      );
+    }
+
+    /*
+     * Re-check the requested slot before approval.
+     * This prevents approving a booking that conflicts
+     * with another active booking.
+     */
+    let duration = 60;
+
+    try {
+      const services =
+        await db
+          .from(
+            "booking_services"
+          )
+          .select(
+            "duration_minutes"
+          )
+          .eq(
+            "booking_id",
+            id
+          );
+
+      if (services.error) {
+        throw services.error;
+      }
+
+      const calculatedDuration =
+        (services.data || []).reduce(
+          (
+            total,
+            row
+          ) =>
+            total +
+            Number(
+              row.duration_minutes ||
+                0
+            ),
+          0
+        );
+
+      duration =
+        Math.max(
+          30,
+          calculatedDuration ||
+            60
+        );
+    } catch (error) {
+      throw error;
+    }
+
+    await validateAvailability(
+      db,
+      id,
+      String(
+        booking.preferred_date
+      ),
+      String(
+        booking.preferred_time
+      ),
+      duration
+    );
+
+    const approvedAt =
+      nowIso;
+
+    const paymentDeadline =
+      new Date(
+        now.getTime() +
+          PAYMENT_DEADLINE_MS
+      ).toISOString();
+
+    const {
+      data: updatedBooking,
+      error,
+    } = await db
+      .from("bookings")
+      .update({
+        status:
+          "approved",
+        approved_at:
+          approvedAt,
+      })
+      .eq(
+        "id",
+        id
+      )
+      .eq(
+        "status",
+        "pending"
+      )
+      .select(
+        "id,status,approved_at"
+      )
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!updatedBooking) {
+      return jsonError(
+        "Booking could not be approved. It may have already been updated.",
+        409
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status:
+        "approved",
+      approved_at:
+        approvedAt,
+      payment_deadline:
+        paymentDeadline,
+      payment_deadline_hours:
+        PAYMENT_DEADLINE_HOURS,
+    });
+  }
+
+  if (
+    action === "reject" ||
+    action === "reject_booking"
+  ) {
+    if (
+      ![
+        "pending",
+        "approved",
+      ].includes(
+        String(
+          booking.status
+        )
+      )
+    ) {
+      return jsonError(
+        "This booking cannot be rejected from its current status."
+      );
+    }
+
+    const {
+      data: rejectedBooking,
+      error,
+    } = await db
+      .from("bookings")
+      .update({
+        status:
+          "rejected",
+      })
+      .eq(
+        "id",
+        id
+      )
+      .in(
+        "status",
+        [
+          "pending",
+          "approved",
+        ]
+      )
+      .select(
+        "id,status"
+      )
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!rejectedBooking) {
+      return jsonError(
+        "Booking could not be rejected. It may have already been updated.",
+        409
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status:
+        "rejected",
+    });
+  }
+
+  if (
+    action === "cancel" ||
+    action === "cancel_booking"
+  ) {
+    const reason =
+      String(
+        body.reason ||
+          ""
+      ).trim();
+
+    const otherReason =
+      String(
+        body.other_reason ||
+          ""
+      ).trim();
+
+    if (
+      !CANCELLATION_REASONS.includes(
+        reason as (
+          typeof CANCELLATION_REASONS
+        )[number]
+      )
+    ) {
+      return jsonError(
+        "A valid cancellation reason is required."
+      );
+    }
+
+    if (
+      reason === "Other" &&
+      !otherReason
+    ) {
+      return jsonError(
+        "Please provide the cancellation reason."
+      );
+    }
+
+    const cancellationReason =
+      reason === "Other"
+        ? `Other: ${otherReason}`
+        : reason;
+
+    if (
+      booking.status ===
+      "cancelled"
+    ) {
+      return jsonError(
+        "This booking is already cancelled."
+      );
+    }
+
+    if (
+      booking.status ===
+      "completed"
+    ) {
+      return jsonError(
+        "Completed bookings cannot be cancelled."
+      );
+    }
+
+    const {
+      data: cancelledBooking,
+      error,
+    } = await db
+      .from("bookings")
+      .update({
+        status:
+          "cancelled",
+        cancellation_reason:
+          cancellationReason,
+        cancellation_note:
+          reason ===
+          "Other"
+            ? otherReason
+            : null,
+        cancelled_at:
+          nowIso,
+      })
+      .eq(
+        "id",
+        id
+      )
+      .neq(
+        "status",
+        "cancelled"
+      )
+      .select(
+        "id,status"
+      )
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!cancelledBooking) {
+      return jsonError(
+        "Booking could not be cancelled. It may have already been cancelled.",
+        409
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status:
+        "cancelled",
+      cancellation_reason:
+        cancellationReason,
+      cancellation_note:
+        reason ===
+        "Other"
+          ? otherReason
+          : null,
+      cancelled_at:
+        nowIso,
+    });
+  }
+
+  if (
+    action ===
+    "verify_discount"
+  ) {
+    if (!booking.promo_name) {
+      return jsonError(
+        "No discount was selected for this booking."
+      );
+    }
+
+    if (
+      booking.discount_verified
+    ) {
+      return jsonError(
+        "This discount has already been verified."
+      );
+    }
+
+    const discountAmount =
+      Math.round(
+        Number(
+          booking.estimated_total ||
+            0
+        ) *
+          0.05 *
+          100
+      ) / 100;
+
+    const {
+      data: verifiedBooking,
+      error,
+    } = await db
+      .from("bookings")
+      .update({
+        discount_verified:
+          true,
+        discount_verified_at:
+          nowIso,
+        discount_amount:
+          discountAmount,
+      })
+      .eq(
+        "id",
+        id
+      )
+      .eq(
+        "discount_verified",
+        false
+      )
+      .select(
+        "id,discount_verified,discount_verified_at,discount_amount"
+      )
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!verifiedBooking) {
+      return jsonError(
+        "Discount could not be verified. It may have already been updated.",
+        409
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      discount_verified:
+        true,
+      discount_verified_at:
+        nowIso,
+      discount_rate:
+        5,
+      discount_amount:
+        discountAmount,
+    });
+  }
+
+  if (
+    action ===
+    "reject_discount"
+  ) {
+    if (!booking.promo_name) {
+      return jsonError(
+        "No discount was selected for this booking."
+      );
+    }
+
+    const {
+      error,
+    } = await db
+      .from("bookings")
+      .update({
+        discount_verified:
+          false,
+        discount_verified_at:
+          null,
+        discount_amount:
+          0,
+      })
+      .eq(
+        "id",
+        id
+      );
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      discount_verified:
+        false,
+      discount_verified_at:
+        null,
+      discount_amount:
+        0,
+    });
+  }
+
+  if (
+    action ===
+    "unverify_discount"
+  ) {
+    const {
+      error,
+    } = await db
+      .from("bookings")
+      .update({
+        discount_verified:
+          false,
+        discount_verified_at:
+          null,
+        discount_amount:
+          0,
+      })
+      .eq(
+        "id",
+        id
+      );
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      discount_verified:
+        false,
+      discount_verified_at:
+        null,
+      discount_amount:
+        0,
+    });
+  }
+
+  if (
+    action ===
+    "verify_payment"
+  ) {
+    const paymentId =
+      String(
+        body.payment_id ||
+          ""
+      ).trim();
+
+    if (!paymentId) {
+      return jsonError(
+        "Payment ID is required."
+      );
+    }
+
+    const {
+      data: payment,
+      error:
+        paymentLookupError,
+    } = await db
+      .from("payments")
+      .select(
+        "id,booking_id,amount,status,payment_type"
+      )
+      .eq(
+        "id",
+        paymentId
+      )
+      .eq(
+        "booking_id",
+        id
+      )
+      .maybeSingle();
+
+    if (
+      paymentLookupError
+    ) {
+      throw paymentLookupError;
+    }
+
+    if (!payment) {
+      return jsonError(
+        "Payment not found.",
+        404
+      );
+    }
+
+    if (
+      payment.status ===
+      "verified"
+    ) {
+      return jsonError(
+        "This payment is already verified."
+      );
+    }
+
+    const {
+      data: verifiedPayment,
+      error,
+    } = await db
+      .from("payments")
+      .update({
+        status:
+          "verified",
+        verified_at:
+          nowIso,
+      })
+      .eq(
+        "id",
+        paymentId
+      )
+      .eq(
+        "booking_id",
+        id
+      )
+      .select(
+        "id,status,verified_at"
+      )
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!verifiedPayment) {
+      return jsonError(
+        "Payment could not be verified. It may have already been updated.",
+        409
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      payment_id:
+        paymentId,
+      status:
+        "verified",
+      verified_at:
+        nowIso,
+    });
+  }
+
+  if (
+    action === "complete" ||
+    action === "complete_booking"
+  ) {
+    return completeBooking(
+      db,
+      id,
+      nowIso
+    );
+  }
+
+  if (
+    action ===
+    "admin_override"
+  ) {
+    const overrideStatus =
+      String(
+        body.status || ""
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      !ADMIN_OVERRIDE_STATUSES.includes(
+        overrideStatus as (
+          typeof ADMIN_OVERRIDE_STATUSES
+        )[number]
+      )
+    ) {
+      return jsonError(
+        "Invalid admin override status."
+      );
+    }
+
+    if (
+      booking.status ===
+      overrideStatus
+    ) {
+      return jsonError(
+        "Booking is already in that status."
+      );
+    }
+
+    const patch: Record<
+      string,
+      unknown
+    > = {
+      status:
+        overrideStatus,
+    };
+
+    if (
+      overrideStatus ===
+      "approved"
+    ) {
+      patch.approved_at =
+        nowIso;
+    }
+
+    if (
+      overrideStatus ===
+      "confirmed"
+    ) {
+      patch.confirmed_at =
+        nowIso;
+    }
+
+    if (
+      overrideStatus ===
+      "completed"
+    ) {
+      patch.completed_at =
+        nowIso;
+    }
+
+    if (
+      overrideStatus ===
+      "cancelled"
+    ) {
+      patch.cancelled_at =
+        nowIso;
+
+      patch.cancellation_reason =
+        "Other";
+
+      patch.cancellation_note =
+        "Booking status changed by admin emergency override.";
+    } else {
+      patch.cancelled_at =
+        null;
+
+      patch.cancellation_reason =
+        null;
+
+      patch.cancellation_note =
+        null;
+    }
+
+    const {
+      data: updatedOverrideBooking,
+      error,
+    } = await db
+      .from("bookings")
+      .update(patch)
+      .eq(
+        "id",
+        id
+      )
+      .select(
+        "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
+      )
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!updatedOverrideBooking) {
+      return jsonError(
+        "Booking status could not be updated.",
+        409
+      );
+    }
+
+    if (
+      overrideStatus ===
+      "completed"
+    ) {
+      try {
+        const services =
+          await getBookingServices(
+            db,
+            id
+          );
+
+        await notifyBookingCompleted({
+          booking: {
+            id:
+              updatedOverrideBooking.id,
+            reference_code:
+              updatedOverrideBooking.reference_code,
+            access_token:
+              updatedOverrideBooking.access_token,
+            customer_name:
+              updatedOverrideBooking.customer_name,
+            email:
+              updatedOverrideBooking.email,
+            preferred_date:
+              updatedOverrideBooking.preferred_date,
+            preferred_time:
+              updatedOverrideBooking.preferred_time,
+            estimated_total:
+              updatedOverrideBooking.estimated_total,
+            discount_amount:
+              updatedOverrideBooking.discount_amount,
+            removal:
+              updatedOverrideBooking.removal,
+            notes:
+              updatedOverrideBooking.notes,
+          },
+          services:
+            services || [],
+        });
+      } catch (
+        notificationError
+      ) {
+        console.error(
+          "Completed booking customer email failed:",
+          notificationError
+        );
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      status:
+        overrideStatus,
+    });
+  }
+
+  return jsonError(
+    "Invalid booking action."
+  );
+}
+
+async function handleEdit(
+  db: Db,
+  id: string,
+  body: any
+) {
+  const {
+    data: existingBooking,
+    error:
+      existingBookingError,
+  } = await db
+    .from("bookings")
+    .select(
+      "id,status,estimated_total,down_payment,promo_name,discount_verified"
+    )
+    .eq(
+      "id",
+      id
+    )
+    .maybeSingle();
+
+  if (
+    existingBookingError
+  ) {
+    throw existingBookingError;
+  }
+
+  if (!existingBooking) {
+    return jsonError(
+      "Booking not found.",
+      404
+    );
+  }
+
+  const customerName =
+    String(
+      body.customer_name ||
+        ""
+    ).trim();
+
+  const mobileNumber =
+    String(
+      body.mobile_number ||
+        ""
+    ).trim();
+
+  const socialHandle =
+    String(
+      body.social_handle ||
+        ""
+    ).trim();
+
+  const preferredDate =
+    String(
+      body.preferred_date ||
+        ""
+    ).trim();
+
+  const preferredTime =
+    normalizeTime(
+      body.preferred_time
+    );
+
+  const removal =
+    String(
+      body.removal ||
+        ""
+    ).trim();
+
+  const notes =
+    String(
+      body.notes ||
+        ""
+    ).trim();
+
+  if (!customerName) {
+    return jsonError(
+      "Customer name is required."
+    );
+  }
+
+  if (!mobileNumber) {
+    return jsonError(
+      "Mobile number is required."
+    );
+  }
+
+  if (
+    !isValidDate(
+      preferredDate
+    )
+  ) {
+    return jsonError(
+      "A valid appointment date is required."
+    );
+  }
+
+  if (!preferredTime) {
+    return jsonError(
+      "A valid appointment time is required."
+    );
+  }
+
+  const calculated =
+    await calculateServicesTotal(
+      db,
+      body.services
+    );
+
+  await validateAvailability(
+    db,
+    id,
+    preferredDate,
+    preferredTime,
+    calculated.duration
+  );
+
+  let discountAmount = 0;
+
+  if (
+    existingBooking.discount_verified &&
+    existingBooking.promo_name
+  ) {
+    discountAmount =
+      Math.round(
+        calculated.total *
+          0.05 *
+          100
+      ) / 100;
+  }
+
+  const finalTotal =
+    Math.max(
+      0,
+      Math.round(
+        (
+          calculated.total -
+          discountAmount
+        ) *
+          100
+      ) / 100
+    );
+
+  const currentDownPayment =
+    Number(
+      existingBooking.down_payment ||
+        0
+    );
+
+  const {
+    error:
+      bookingUpdateError,
+  } = await db
+    .from("bookings")
+    .update({
+      customer_name:
+        customerName,
+      mobile_number:
+        mobileNumber,
+      social_handle:
+        socialHandle ||
+        null,
+      preferred_date:
+        preferredDate,
+      preferred_time:
+        preferredTime,
+      removal:
+        removal || null,
+      notes:
+        notes || null,
+
+      estimated_total:
+        calculated.total,
+
+      discount_amount:
+        discountAmount,
+    })
+    .eq(
+      "id",
+      id
+    );
+
+  if (
+    bookingUpdateError
+  ) {
+    throw bookingUpdateError;
+  }
+
+  const {
+    error:
+      deleteServicesError,
+  } = await db
+    .from(
+      "booking_services"
+    )
+    .delete()
+    .eq(
+      "booking_id",
+      id
+    );
+
+  if (
+    deleteServicesError
+  ) {
+    throw deleteServicesError;
+  }
+
+  const rows =
+    calculated.services.map(
+      (service) => ({
+        booking_id:
+          id,
+        service_id:
+          service.service_id,
+        variation_id:
+          service.variation_id,
+        service_name:
+          service.service_name,
+        variation_name:
+          service.variation_name,
+        price:
+          service.price,
+        duration_minutes:
+          service.duration_minutes,
+      })
+    );
+
+  const {
+    error:
+      insertServicesError,
+  } = await db
+    .from(
+      "booking_services"
+    )
+    .insert(rows);
+
+  if (
+    insertServicesError
+  ) {
+    throw insertServicesError;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    id,
+    estimated_total:
+      finalTotal,
+    original_total:
+      calculated.total,
+    discount_amount:
+      discountAmount,
+    down_payment:
+      currentDownPayment,
+    duration:
+      calculated.duration,
+    services:
+      calculated.services,
+  });
+}
+
+async function handleRecordPayment(
+  db: Db,
+  id: string,
+  body: any
+) {
+  const paymentType =
+    String(
+      body.payment_type ||
+        ""
+    )
+      .trim()
+      .toLowerCase();
+
+  const method =
+    String(
+      body.method ||
+        ""
+    ).trim();
+
+  const amount =
+    Number(
+      body.amount
+    );
+
+  const note =
+    String(
+      body.note ||
+        ""
+    ).trim();
+
+  if (
+    !PAYMENT_TYPES.includes(
+      paymentType as (
+        typeof PAYMENT_TYPES
+      )[number]
+    )
+  ) {
+    return jsonError(
+      "Invalid payment type."
+    );
+  }
+
+  if (
+    !PAYMENT_METHODS.includes(
+      method as (
+        typeof PAYMENT_METHODS
+      )[number]
+    )
+  ) {
+    return jsonError(
+      "Invalid payment method."
+    );
+  }
+
+  if (
+    !Number.isFinite(
+      amount
+    ) ||
+    amount <= 0
+  ) {
+    return jsonError(
+      "Payment amount must be greater than zero."
+    );
+  }
+
+  const {
+    data: booking,
+    error:
+      bookingLookupError,
+  } = await db
+    .from("bookings")
+    .select(
+      "id,estimated_total,down_payment"
+    )
+    .eq(
+      "id",
+      id
+    )
+    .maybeSingle();
+
+  if (
+    bookingLookupError
+  ) {
+    throw bookingLookupError;
+  }
+
+  if (!booking) {
+    return jsonError(
+      "Booking not found.",
+      404
+    );
+  }
+
+  const now =
+    new Date().toISOString();
+
+  const {
+    data: payment,
+    error:
+      paymentInsertError,
+  } = await db
+    .from("payments")
+    .insert({
+      booking_id:
+        id,
+      method,
+      amount,
+      status:
+        "verified",
+      verified_at:
+        now,
+      payment_type:
+        paymentType,
+      gross_amount:
+        amount,
+      processing_fee:
+        0,
+      net_amount:
+        amount,
+      note:
+        note || null,
+      paid_at:
+        now,
+    })
+    .select(
+      "id,booking_id,method,amount,status,payment_type,gross_amount,processing_fee,net_amount,note,paid_at,verified_at,created_at"
+    )
+    .single();
+
+  if (
+    paymentInsertError
+  ) {
+    throw paymentInsertError;
+  }
+
+  if (
+    paymentType ===
+    "balance"
+  ) {
+    const currentDownPayment =
+      Number(
+        booking.down_payment ||
+          0
+      );
+
+    const newDownPayment =
+      Math.round(
+        (
+          currentDownPayment +
+          amount
+        ) *
+          100
+      ) / 100;
+
+    const {
+      error:
+        downPaymentError,
+    } = await db
+      .from("bookings")
+      .update({
+        down_payment:
+          newDownPayment,
+      })
+      .eq(
+        "id",
+        id
+      );
+
+    if (
+      downPaymentError
+    ) {
+      await db
+        .from("payments")
+        .delete()
+        .eq(
+          "id",
+          payment.id
+        );
+
+      throw downPaymentError;
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    payment,
+  });
+}
+
+async function handleDelete(
+  db: Db,
+  id: string,
+  body: any
+) {
+  if (
+    body.confirm !== true
+  ) {
+    return jsonError(
+      "Delete confirmation is required."
+    );
+  }
+
+  const {
+    data: paymentProofs,
+    error:
+      paymentProofLookupError,
+  } = await db
+    .from(
+      "payment_proofs"
+    )
+    .select(
+      "bucket,path"
+    )
+    .eq(
+      "booking_id",
+      id
+    );
+
+  if (
+    paymentProofLookupError
+  ) {
+    throw paymentProofLookupError;
+  }
+
+  const {
+    data: bookingFiles,
+    error:
+      bookingFilesLookupError,
+  } = await db
+    .from(
+      "booking_files"
+    )
+    .select(
+      "bucket,path"
+    )
+    .eq(
+      "booking_id",
+      id
+    );
+
+  if (
+    bookingFilesLookupError
+  ) {
+    throw bookingFilesLookupError;
+  }
+
+  const paymentProofDelete =
+    await db
+      .from(
+        "payment_proofs"
+      )
+      .delete()
+      .eq(
+        "booking_id",
+        id
+      );
+
+  if (
+    paymentProofDelete.error
+  ) {
+    throw paymentProofDelete.error;
+  }
+
+  const bookingFilesDelete =
+    await db
+      .from(
+        "booking_files"
+      )
+      .delete()
+      .eq(
+        "booking_id",
+        id
+      );
+
+  if (
+    bookingFilesDelete.error
+  ) {
+    throw bookingFilesDelete.error;
+  }
+
+  const bookingServicesDelete =
+    await db
+      .from(
+        "booking_services"
+      )
+      .delete()
+      .eq(
+        "booking_id",
+        id
+      );
+
+  if (
+    bookingServicesDelete.error
+  ) {
+    throw bookingServicesDelete.error;
+  }
+
+  const paymentsDelete =
+    await db
+      .from("payments")
+      .delete()
+      .eq(
+        "booking_id",
+        id
+      );
+
+  if (
+    paymentsDelete.error
+  ) {
+    throw paymentsDelete.error;
+  }
+
+  const {
+    data: deletedBooking,
+    error:
+      bookingDeleteError,
+  } = await db
+    .from("bookings")
+    .delete()
+    .eq(
+      "id",
+      id
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (
+    bookingDeleteError
+  ) {
+    throw bookingDeleteError;
+  }
+
+  if (!deletedBooking) {
+    return jsonError(
+      "Booking not found.",
+      404
+    );
+  }
+
+  const storageGroups = [
+    paymentProofs || [],
+    bookingFiles || [],
+  ];
+
+  for (
+    const files of
+      storageGroups
+  ) {
+    const grouped =
+      new Map<
+        string,
+        string[]
+      >();
+
+    for (
+      const file of
+        files
+    ) {
+      if (
+        !file?.bucket ||
+        !file?.path
+      ) {
+        continue;
+      }
+
+      const existing =
+        grouped.get(
+          file.bucket
+        ) || [];
+
+      existing.push(
+        file.path
+      );
+
+      grouped.set(
+        file.bucket,
+        existing
+      );
+    }
+
+    for (
+      const [
+        bucket,
+        paths,
+      ] of grouped
+    ) {
+      if (
+        paths.length === 0
+      ) {
+        continue;
+      }
+
+      const {
+        error:
+          storageError,
+      } =
+        await db.storage
+          .from(
+            bucket
+          )
+          .remove(
+            paths
+          );
+
+      if (
+        storageError
+      ) {
+        console.error(
+          "Storage cleanup failed:",
+          {
+            bookingId:
+              id,
+            bucket,
+            storageError,
+          }
+        );
+      }
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    deleted: true,
+    id,
+  });
+}
+
+async function handleReset(
+  db: Db,
+  id: string,
+  body: any
+) {
+  const resetStatus =
+    String(
+      body.status ||
+        ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    !RESET_STATUSES.includes(
+      resetStatus as (
+        typeof RESET_STATUSES
+      )[number]
+    )
+  ) {
+    return jsonError(
+      "Invalid reset status."
+    );
+  }
+
+  const {
+    data: resetBooking,
+    error:
+      resetLookupError,
+  } = await db
+    .from("bookings")
+    .select(
+      "id,status"
+    )
+    .eq(
+      "id",
+      id
+    )
+    .maybeSingle();
+
+  if (
+    resetLookupError
+  ) {
+    throw resetLookupError;
+  }
+
+  if (!resetBooking) {
+    return jsonError(
+      "Booking not found.",
+      404
+    );
+  }
+
+  const patch: Record<
+    string,
+    unknown
+  > = {
+    status:
+      resetStatus,
+  };
+
+  if (
+    resetStatus ===
+    "approved"
+  ) {
+    patch.approved_at =
+      new Date().toISOString();
+  } else {
+    patch.approved_at =
+      null;
+  }
+
+  if (
+    resetStatus !==
+    "confirmed"
+  ) {
+    patch.confirmed_at =
+      null;
+  }
+
+  patch.cancelled_at =
+    null;
+
+  patch.cancellation_reason =
+    null;
+
+  patch.cancellation_note =
+    null;
+
+  const {
+    data: updatedBooking,
+    error:
+      resetUpdateError,
+  } = await db
+    .from("bookings")
+    .update(patch)
+    .eq(
+      "id",
+      id
+    )
+    .select(
+      "id,status"
+    )
+    .maybeSingle();
+
+  if (
+    resetUpdateError
+  ) {
+    throw resetUpdateError;
+  }
+
+  if (!updatedBooking) {
+    return jsonError(
+      "Booking could not be reset.",
+      404
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    status:
+      resetStatus,
+  });
+}
+
 export async function POST(
   request: NextRequest
 ) {
@@ -1013,23 +2782,71 @@ export async function POST(
       );
     }
 
-    const formData =
-      await request.formData();
+    try {
+      await expireOverdueApprovedBookings(
+        db
+      );
+    } catch (
+      expiryError
+    ) {
+      console.error(
+        "Payment deadline expiry check failed:",
+        expiryError
+      );
+    }
+
+    const contentType =
+      request.headers.get(
+        "content-type"
+      ) || "";
+
+    let body: any = {};
+    let formData:
+      FormData | null = null;
+
+    if (
+      contentType.includes(
+        "multipart/form-data"
+      ) ||
+      contentType.includes(
+        "application/x-www-form-urlencoded"
+      )
+    ) {
+      formData =
+        await request.formData();
+
+      body = {};
+
+      for (
+        const [
+          key,
+          value,
+        ] of formData.entries()
+      ) {
+        body[key] =
+          value instanceof File
+            ? value
+            : value;
+      }
+    } else {
+      body =
+        await request
+          .json()
+          .catch(
+            () => ({})
+          );
+    }
 
     const action =
       String(
-        formData.get(
-          "action"
-        ) || ""
+        body.action || ""
       )
         .trim()
         .toLowerCase();
 
     const id =
       String(
-        formData.get(
-          "id"
-        ) || ""
+        body.id || ""
       ).trim();
 
     if (!id) {
@@ -1038,279 +2855,89 @@ export async function POST(
       );
     }
 
+    /*
+     * IMPORTANT FIX:
+     *
+     * All normal admin booking actions are now handled
+     * through the same action handler from POST as well
+     * as PATCH.
+     *
+     * This fixes form buttons such as Approve that submit
+     * POST requests.
+     */
     if (
-      action ===
-      "verify_discount"
+      [
+        "approve",
+        "approve_booking",
+        "reject",
+        "reject_booking",
+        "cancel",
+        "cancel_booking",
+        "complete",
+        "complete_booking",
+        "verify_discount",
+        "reject_discount",
+        "unverify_discount",
+        "verify_payment",
+        "admin_override",
+      ].includes(action)
     ) {
-      const {
-        data: booking,
-        error:
-          bookingError,
-      } = await db
-        .from("bookings")
-        .select(
-          "id,promo_name,discount_verified"
-        )
-        .eq(
-          "id",
-          id
-        )
-        .single();
+      return handleBookingAction(
+        db,
+        request,
+        action,
+        body,
+        id
+      );
+    }
 
-      if (
-        bookingError ||
-        !booking
-      ) {
-        return jsonError(
-          "Booking not found.",
-          404
-        );
-      }
-
-      if (!booking.promo_name) {
-        return jsonError(
-          "No discount was selected for this booking."
-        );
-      }
-
-      if (
-        booking.discount_verified
-      ) {
-        return jsonError(
-          "This discount has already been verified."
-        );
-      }
-
-      const now =
-        new Date().toISOString();
-
-      const {
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          discount_verified:
-            true,
-          discount_verified_at:
-            now,
-        })
-        .eq(
-          "id",
-          id
-        )
-        .eq(
-          "discount_verified",
-          false
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.redirect(
-        new URL(
-          `/admin/bookings/${id}`,
-          request.url
-        )
+    if (
+      action === "edit"
+    ) {
+      return handleEdit(
+        db,
+        id,
+        body
       );
     }
 
     if (
       action ===
-      "reject_discount"
+      "record_payment"
     ) {
-      const {
-        data: booking,
-        error:
-          bookingError,
-      } = await db
-        .from("bookings")
-        .select(
-          "id,promo_name,discount_verified"
-        )
-        .eq(
-          "id",
-          id
-        )
-        .maybeSingle();
-
-      if (
-        bookingError
-      ) {
-        throw bookingError;
-      }
-
-      if (!booking) {
-        return jsonError(
-          "Booking not found.",
-          404
-        );
-      }
-
-      if (!booking.promo_name) {
-        return jsonError(
-          "No discount was selected for this booking."
-        );
-      }
-
-      const {
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          discount_verified:
-            false,
-          discount_verified_at:
-            null,
-          discount_amount:
-            0,
-        })
-        .eq(
-          "id",
-          id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.redirect(
-        new URL(
-          `/admin/bookings/${id}`,
-          request.url
-        )
+      return handleRecordPayment(
+        db,
+        id,
+        body
       );
     }
 
     if (
-      action ===
-      "unverify_discount"
+      action === "delete"
     ) {
-      const {
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          discount_verified:
-            false,
-          discount_verified_at:
-            null,
-          discount_amount:
-            0,
-        })
-        .eq(
-          "id",
-          id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.redirect(
-        new URL(
-          `/admin/bookings/${id}`,
-          request.url
-        )
+      return handleDelete(
+        db,
+        id,
+        body
       );
     }
 
     if (
-      action ===
-      "verify_payment"
+      action === "reset"
     ) {
-      const paymentId =
-        String(
-          formData.get(
-            "payment_id"
-          ) || ""
-        ).trim();
-
-      if (!paymentId) {
-        return jsonError(
-          "Payment ID is required."
-        );
-      }
-
-      const {
-        data: payment,
-        error:
-          paymentLookupError,
-      } = await db
-        .from("payments")
-        .select(
-          "id,booking_id,amount,status"
-        )
-        .eq(
-          "id",
-          paymentId
-        )
-        .eq(
-          "booking_id",
-          id
-        )
-        .maybeSingle();
-
-      if (
-        paymentLookupError
-      ) {
-        throw paymentLookupError;
-      }
-
-      if (!payment) {
-        return jsonError(
-          "Payment not found.",
-          404
-        );
-      }
-
-      if (
-        payment.status ===
-        "verified"
-      ) {
-        return jsonError(
-          "This payment is already verified."
-        );
-      }
-
-      const now =
-        new Date().toISOString();
-
-      const {
-        error,
-      } = await db
-        .from("payments")
-        .update({
-          status:
-            "verified",
-          verified_at:
-            now,
-        })
-        .eq(
-          "id",
-          paymentId
-        )
-        .eq(
-          "booking_id",
-          id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.redirect(
-        new URL(
-          `/admin/bookings/${id}`,
-          request.url
-        )
+      return handleReset(
+        db,
+        id,
+        body
       );
     }
 
     return jsonError(
       "Invalid booking action."
     );
-  } catch (error: any) {
+  } catch (
+    error: any
+  ) {
     console.error(
       "Admin bookings POST error:",
       error
@@ -1347,7 +2974,9 @@ export async function PATCH(
       await expireOverdueApprovedBookings(
         db
       );
-    } catch (expiryError) {
+    } catch (
+      expiryError
+    ) {
       console.error(
         "Payment deadline expiry check failed:",
         expiryError
@@ -1357,7 +2986,9 @@ export async function PATCH(
     const body =
       await request
         .json()
-        .catch(() => ({}));
+        .catch(
+          () => ({})
+        );
 
     const action =
       String(
@@ -1380,1640 +3011,54 @@ export async function PATCH(
     if (
       action === "delete"
     ) {
-      if (
-        body.confirm !== true
-      ) {
-        return jsonError(
-          "Delete confirmation is required."
-        );
-      }
-
-      const {
-        data: paymentProofs,
-        error:
-          paymentProofLookupError,
-      } = await db
-        .from(
-          "payment_proofs"
-        )
-        .select(
-          "bucket,path"
-        )
-        .eq(
-          "booking_id",
-          id
-        );
-
-      if (
-        paymentProofLookupError
-      ) {
-        throw paymentProofLookupError;
-      }
-
-      const {
-        data: bookingFiles,
-        error:
-          bookingFilesLookupError,
-      } = await db
-        .from(
-          "booking_files"
-        )
-        .select(
-          "bucket,path"
-        )
-        .eq(
-          "booking_id",
-          id
-        );
-
-      if (
-        bookingFilesLookupError
-      ) {
-        throw bookingFilesLookupError;
-      }
-
-      const paymentProofDelete =
-        await db
-          .from(
-            "payment_proofs"
-          )
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        paymentProofDelete.error
-      ) {
-        throw paymentProofDelete.error;
-      }
-
-      const bookingFilesDelete =
-        await db
-          .from(
-            "booking_files"
-          )
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        bookingFilesDelete.error
-      ) {
-        throw bookingFilesDelete.error;
-      }
-
-      const bookingServicesDelete =
-        await db
-          .from(
-            "booking_services"
-          )
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        bookingServicesDelete.error
-      ) {
-        throw bookingServicesDelete.error;
-      }
-
-      const paymentsDelete =
-        await db
-          .from("payments")
-          .delete()
-          .eq(
-            "booking_id",
-            id
-          );
-
-      if (
-        paymentsDelete.error
-      ) {
-        throw paymentsDelete.error;
-      }
-
-      const {
-        data: deletedBooking,
-        error:
-          bookingDeleteError,
-      } = await db
-        .from("bookings")
-        .delete()
-        .eq(
-          "id",
-          id
-        )
-        .select("id")
-        .maybeSingle();
-
-      if (
-        bookingDeleteError
-      ) {
-        throw bookingDeleteError;
-      }
-
-      if (!deletedBooking) {
-        return jsonError(
-          "Booking not found.",
-          404
-        );
-      }
-
-      const storageGroups = [
-        paymentProofs || [],
-        bookingFiles || [],
-      ];
-
-      for (
-        const files of
-          storageGroups
-      ) {
-        const grouped =
-          new Map<
-            string,
-            string[]
-          >();
-
-        for (
-          const file of
-            files
-        ) {
-          if (
-            !file?.bucket ||
-            !file?.path
-          ) {
-            continue;
-          }
-
-          const existing =
-            grouped.get(
-              file.bucket
-            ) || [];
-
-          existing.push(
-            file.path
-          );
-
-          grouped.set(
-            file.bucket,
-            existing
-          );
-        }
-
-        for (
-          const [
-            bucket,
-            paths,
-          ] of grouped
-        ) {
-          if (
-            paths.length === 0
-          ) {
-            continue;
-          }
-
-          const {
-            error:
-              storageError,
-          } =
-            await db.storage
-              .from(
-                bucket
-              )
-              .remove(
-                paths
-              );
-
-          if (
-            storageError
-          ) {
-            console.error(
-              "Storage cleanup failed:",
-              {
-                bookingId:
-                  id,
-                bucket,
-                storageError,
-              }
-            );
-          }
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        deleted: true,
+      return handleDelete(
+        db,
         id,
-      });
+        body
+      );
     }
 
     if (
       action === "reset"
     ) {
-      const resetStatus =
-        String(
-          body.status ||
-            ""
-        )
-          .trim()
-          .toLowerCase();
-
-      if (
-        !RESET_STATUSES.includes(
-          resetStatus as (
-            typeof RESET_STATUSES
-          )[number]
-        )
-      ) {
-        return jsonError(
-          "Invalid reset status."
-        );
-      }
-
-      const {
-        data: resetBooking,
-        error:
-          resetLookupError,
-      } = await db
-        .from("bookings")
-        .select(
-          "id,status"
-        )
-        .eq(
-          "id",
-          id
-        )
-        .maybeSingle();
-
-      if (
-        resetLookupError
-      ) {
-        throw resetLookupError;
-      }
-
-      if (!resetBooking) {
-        return jsonError(
-          "Booking not found.",
-          404
-        );
-      }
-
-      const patch: Record<
-        string,
-        unknown
-      > = {
-        status:
-          resetStatus,
-      };
-
-      if (
-        resetStatus ===
-        "approved"
-      ) {
-        patch.approved_at =
-          new Date().toISOString();
-      } else {
-        patch.approved_at =
-          null;
-      }
-
-      if (
-        resetStatus !==
-        "confirmed"
-      ) {
-        patch.confirmed_at =
-          null;
-      }
-
-      patch.cancelled_at =
-        null;
-
-      patch.cancellation_reason =
-        null;
-
-      patch.cancellation_note =
-        null;
-
-      const {
-        data: updatedBooking,
-        error:
-          resetUpdateError,
-      } = await db
-        .from("bookings")
-        .update(patch)
-        .eq(
-          "id",
-          id
-        )
-        .select(
-          "id,status"
-        )
-        .maybeSingle();
-
-      if (
-        resetUpdateError
-      ) {
-        throw resetUpdateError;
-      }
-
-      if (!updatedBooking) {
-        return jsonError(
-          "Booking could not be reset.",
-          404
-        );
-      }
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          resetStatus,
-      });
+      return handleReset(
+        db,
+        id,
+        body
+      );
     }
 
     if (
       action === "edit"
     ) {
-      const {
-        data: existingBooking,
-        error:
-          existingBookingError,
-      } = await db
-        .from("bookings")
-        .select(
-          "id,status,estimated_total,down_payment,promo_name,discount_verified"
-        )
-        .eq(
-          "id",
-          id
-        )
-        .maybeSingle();
-
-      if (
-        existingBookingError
-      ) {
-        throw existingBookingError;
-      }
-
-      if (!existingBooking) {
-        return jsonError(
-          "Booking not found.",
-          404
-        );
-      }
-
-      const customerName =
-        String(
-          body.customer_name ||
-            ""
-        ).trim();
-
-      const mobileNumber =
-        String(
-          body.mobile_number ||
-            ""
-        ).trim();
-
-      const socialHandle =
-        String(
-          body.social_handle ||
-            ""
-        ).trim();
-
-      const preferredDate =
-        String(
-          body.preferred_date ||
-            ""
-        ).trim();
-
-      const preferredTime =
-        normalizeTime(
-          body.preferred_time
-        );
-
-      const removal =
-        String(
-          body.removal ||
-            ""
-        ).trim();
-
-      const notes =
-        String(
-          body.notes ||
-            ""
-        ).trim();
-
-      if (!customerName) {
-        return jsonError(
-          "Customer name is required."
-        );
-      }
-
-      if (!mobileNumber) {
-        return jsonError(
-          "Mobile number is required."
-        );
-      }
-
-      if (
-        !isValidDate(
-          preferredDate
-        )
-      ) {
-        return jsonError(
-          "A valid appointment date is required."
-        );
-      }
-
-      if (!preferredTime) {
-        return jsonError(
-          "A valid appointment time is required."
-        );
-      }
-
-      const calculated =
-        await calculateServicesTotal(
-          db,
-          body.services
-        );
-
-      await validateAvailability(
+      return handleEdit(
         db,
         id,
-        preferredDate,
-        preferredTime,
-        calculated.duration
+        body
       );
-
-      let discountAmount = 0;
-
-      if (
-        existingBooking.discount_verified &&
-        existingBooking.promo_name
-      ) {
-        discountAmount =
-          Math.round(
-            calculated.total *
-              0.05 *
-              100
-          ) / 100;
-      }
-
-      const finalTotal =
-        Math.max(
-          0,
-          Math.round(
-            (
-              calculated.total -
-              discountAmount
-            ) *
-              100
-          ) / 100
-        );
-
-      const currentDownPayment =
-        Number(
-          existingBooking.down_payment ||
-            0
-        );
-
-      const {
-        error:
-          bookingUpdateError,
-      } = await db
-        .from("bookings")
-        .update({
-          customer_name:
-            customerName,
-          mobile_number:
-            mobileNumber,
-          social_handle:
-            socialHandle ||
-            null,
-          preferred_date:
-            preferredDate,
-          preferred_time:
-            preferredTime,
-          removal:
-            removal || null,
-          notes:
-            notes || null,
-
-          // Keep estimated_total as the
-          // original service subtotal.
-          // discount_amount stores the
-          // separate discount.
-          estimated_total:
-            calculated.total,
-
-          discount_amount:
-            discountAmount,
-        })
-        .eq(
-          "id",
-          id
-        );
-
-      if (
-        bookingUpdateError
-      ) {
-        throw bookingUpdateError;
-      }
-
-      const {
-        error:
-          deleteServicesError,
-      } = await db
-        .from(
-          "booking_services"
-        )
-        .delete()
-        .eq(
-          "booking_id",
-          id
-        );
-
-      if (
-        deleteServicesError
-      ) {
-        throw deleteServicesError;
-      }
-
-      const rows =
-        calculated.services.map(
-          (service) => ({
-            booking_id:
-              id,
-            service_id:
-              service.service_id,
-            variation_id:
-              service.variation_id,
-            service_name:
-              service.service_name,
-            variation_name:
-              service.variation_name,
-            price:
-              service.price,
-            duration_minutes:
-              service.duration_minutes,
-          })
-        );
-
-      const {
-        error:
-          insertServicesError,
-      } = await db
-        .from(
-          "booking_services"
-        )
-        .insert(rows);
-
-      if (
-        insertServicesError
-      ) {
-        throw insertServicesError;
-      }
-
-      return NextResponse.json({
-        ok: true,
-        id,
-        estimated_total:
-          finalTotal,
-        original_total:
-          calculated.total,
-        discount_amount:
-          discountAmount,
-        down_payment:
-          currentDownPayment,
-        duration:
-          calculated.duration,
-        services:
-          calculated.services,
-      });
     }
 
     if (
       action ===
       "record_payment"
     ) {
-      const paymentType =
-        String(
-          body.payment_type ||
-            ""
-        )
-          .trim()
-          .toLowerCase();
-
-      const method =
-        String(
-          body.method ||
-            ""
-        ).trim();
-
-      const amount =
-        Number(
-          body.amount
-        );
-
-      const note =
-        String(
-          body.note ||
-            ""
-        ).trim();
-
-      if (
-        !PAYMENT_TYPES.includes(
-          paymentType as (
-            typeof PAYMENT_TYPES
-          )[number]
-        )
-      ) {
-        return jsonError(
-          "Invalid payment type."
-        );
-      }
-
-      if (
-        !PAYMENT_METHODS.includes(
-          method as (
-            typeof PAYMENT_METHODS
-          )[number]
-        )
-      ) {
-        return jsonError(
-          "Invalid payment method."
-        );
-      }
-
-      if (
-        !Number.isFinite(
-          amount
-        ) ||
-        amount <= 0
-      ) {
-        return jsonError(
-          "Payment amount must be greater than zero."
-        );
-      }
-
-      const {
-        data: booking,
-        error:
-          bookingLookupError,
-      } = await db
-        .from("bookings")
-        .select(
-          "id,estimated_total,down_payment"
-        )
-        .eq(
-          "id",
-          id
-        )
-        .maybeSingle();
-
-      if (
-        bookingLookupError
-      ) {
-        throw bookingLookupError;
-      }
-
-      if (!booking) {
-        return jsonError(
-          "Booking not found.",
-          404
-        );
-      }
-
-      const now =
-        new Date().toISOString();
-
-      const {
-        data: payment,
-        error:
-          paymentInsertError,
-      } = await db
-        .from("payments")
-        .insert({
-          booking_id:
-            id,
-          method,
-          amount,
-          status:
-            "verified",
-          verified_at:
-            now,
-          payment_type:
-            paymentType,
-          gross_amount:
-            amount,
-          processing_fee:
-            0,
-          net_amount:
-            amount,
-          note:
-            note || null,
-          paid_at:
-            now,
-        })
-        .select(
-          "id,booking_id,method,amount,status,payment_type,gross_amount,processing_fee,net_amount,note,paid_at,verified_at,created_at"
-        )
-        .single();
-
-      if (
-        paymentInsertError
-      ) {
-        throw paymentInsertError;
-      }
-
-      if (
-        paymentType ===
-        "balance"
-      ) {
-        const currentDownPayment =
-          Number(
-            booking.down_payment ||
-              0
-          );
-
-        const newDownPayment =
-          Math.round(
-            (
-              currentDownPayment +
-              amount
-            ) *
-              100
-          ) / 100;
-
-        const {
-          error:
-            downPaymentError,
-        } = await db
-          .from("bookings")
-          .update({
-            down_payment:
-              newDownPayment,
-          })
-          .eq(
-            "id",
-            id
-          );
-
-        if (
-          downPaymentError
-        ) {
-          await db
-            .from("payments")
-            .delete()
-            .eq(
-              "id",
-              payment.id
-            );
-
-          throw downPaymentError;
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        payment,
-      });
-    }
-
-    const {
-      data: booking,
-      error: bookingError,
-    } = await db
-      .from("bookings")
-      .select(
-        "id,status,reference_code,access_token,customer_name,email,promo_name,estimated_total,discount_amount,discount_verified,approved_at,preferred_date,preferred_time,removal,notes"
-      )
-      .eq(
-        "id",
-        id
-      )
-      .single();
-
-    if (
-      bookingError ||
-      !booking
-    ) {
-      return jsonError(
-        "Booking not found.",
-        404
+      return handleRecordPayment(
+        db,
+        id,
+        body
       );
     }
 
-    const now =
-      new Date();
-
-    const nowIso =
-      now.toISOString();
-
-    if (
-      action ===
-      "admin_override"
-    ) {
-      const overrideStatus =
-        String(
-          body.status || ""
-        )
-          .trim()
-          .toLowerCase();
-
-      const ADMIN_OVERRIDE_STATUSES = [
-        "pending",
-        "approved",
-        "payment_submitted",
-        "confirmed",
-        "completed",
-        "cancelled",
-        "rejected",
-      ] as const;
-
-      if (
-        !ADMIN_OVERRIDE_STATUSES.includes(
-          overrideStatus as (
-            typeof ADMIN_OVERRIDE_STATUSES
-          )[number]
-        )
-      ) {
-        return jsonError(
-          "Invalid admin override status."
-        );
-      }
-
-      if (
-        booking.status ===
-        overrideStatus
-      ) {
-        return jsonError(
-          "Booking is already in that status."
-        );
-      }
-
-      const patch: Record<
-        string,
-        unknown
-      > = {
-        status:
-          overrideStatus,
-      };
-
-      if (
-        overrideStatus ===
-        "approved"
-      ) {
-        patch.approved_at =
-          nowIso;
-      }
-
-      if (
-        overrideStatus ===
-        "confirmed"
-      ) {
-        patch.confirmed_at =
-          nowIso;
-      }
-
-      if (
-        overrideStatus ===
-        "completed"
-      ) {
-        patch.completed_at =
-          nowIso;
-      }
-
-      if (
-        overrideStatus ===
-        "cancelled"
-      ) {
-        patch.cancelled_at =
-          nowIso;
-
-        patch.cancellation_reason =
-          "Other";
-
-        patch.cancellation_note =
-          "Booking status changed by admin emergency override.";
-      } else {
-        patch.cancelled_at =
-          null;
-
-        patch.cancellation_reason =
-          null;
-
-        patch.cancellation_note =
-          null;
-      }
-
-      const {
-        data: updatedOverrideBooking,
-        error,
-      } = await db
-        .from("bookings")
-        .update(patch)
-        .eq(
-          "id",
-          id
-        )
-        .select(
-          "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
-        )
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!updatedOverrideBooking) {
-        return jsonError(
-          "Booking status could not be updated.",
-          409
-        );
-      }
-
-      if (
-        overrideStatus ===
-        "completed"
-      ) {
-        try {
-          const services =
-            await getBookingServices(
-              db,
-              id
-            );
-
-          await notifyBookingCompleted({
-            booking: {
-              id:
-                updatedOverrideBooking.id,
-              reference_code:
-                updatedOverrideBooking.reference_code,
-              access_token:
-                updatedOverrideBooking.access_token,
-              customer_name:
-                updatedOverrideBooking.customer_name,
-              email:
-                updatedOverrideBooking.email,
-              preferred_date:
-                updatedOverrideBooking.preferred_date,
-              preferred_time:
-                updatedOverrideBooking.preferred_time,
-              estimated_total:
-                updatedOverrideBooking.estimated_total,
-              discount_amount:
-                updatedOverrideBooking.discount_amount,
-              removal:
-                updatedOverrideBooking.removal,
-              notes:
-                updatedOverrideBooking.notes,
-            },
-            services:
-              services || [],
-          });
-        } catch (
-          notificationError
-        ) {
-          console.error(
-            "Completed booking customer email failed:",
-            notificationError
-          );
-        }
-      }
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          overrideStatus,
-      });
-    }
-
-    if (
-      action === "approve"
-    ) {
-      if (
-        booking.status !==
-        "pending"
-      ) {
-        return jsonError(
-          "Only pending bookings can be approved."
-        );
-      }
-
-      const approvedAt =
-        nowIso;
-
-      const paymentDeadline =
-        new Date(
-          now.getTime() +
-            PAYMENT_DEADLINE_MS
-        ).toISOString();
-
-      const {
-        data: updatedBooking,
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          status:
-            "approved",
-          approved_at:
-            approvedAt,
-        })
-        .eq(
-          "id",
-          id
-        )
-        .eq(
-          "status",
-          "pending"
-        )
-        .select(
-          "id,status,approved_at"
-        )
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!updatedBooking) {
-        return jsonError(
-          "Booking could not be approved. It may have already been updated.",
-          409
-        );
-      }
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          "approved",
-        approved_at:
-          approvedAt,
-        payment_deadline:
-          paymentDeadline,
-        payment_deadline_hours:
-          PAYMENT_DEADLINE_HOURS,
-      });
-    }
-
-    if (
-      action === "reject"
-    ) {
-      if (
-        ![
-          "pending",
-          "approved",
-        ].includes(
-          String(
-            booking.status
-          )
-        )
-      ) {
-        return jsonError(
-          "This booking cannot be rejected from its current status."
-        );
-      }
-
-      const {
-        data: rejectedBooking,
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          status:
-            "rejected",
-        })
-        .eq(
-          "id",
-          id
-        )
-        .in(
-          "status",
-          [
-            "pending",
-            "approved",
-          ]
-        )
-        .select(
-          "id,status"
-        )
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!rejectedBooking) {
-        return jsonError(
-          "Booking could not be rejected. It may have already been updated.",
-          409
-        );
-      }
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          "rejected",
-      });
-    }
-
-    if (
-      action === "cancel"
-    ) {
-      const reason =
-        String(
-          body.reason ||
-            ""
-        ).trim();
-
-      const otherReason =
-        String(
-          body.other_reason ||
-            ""
-        ).trim();
-
-      if (
-        !CANCELLATION_REASONS.includes(
-          reason as (
-            typeof CANCELLATION_REASONS
-          )[number]
-        )
-      ) {
-        return jsonError(
-          "A valid cancellation reason is required."
-        );
-      }
-
-      if (
-        reason === "Other" &&
-        !otherReason
-      ) {
-        return jsonError(
-          "Please provide the cancellation reason."
-        );
-      }
-
-      const cancellationReason =
-        reason === "Other"
-          ? `Other: ${otherReason}`
-          : reason;
-
-      if (
-        booking.status ===
-        "cancelled"
-      ) {
-        return jsonError(
-          "This booking is already cancelled."
-        );
-      }
-
-      if (
-        booking.status ===
-        "completed"
-      ) {
-        return jsonError(
-          "Completed bookings cannot be cancelled."
-        );
-      }
-
-      const {
-        data: cancelledBooking,
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          status:
-            "cancelled",
-          cancellation_reason:
-            cancellationReason,
-          cancellation_note:
-            reason ===
-            "Other"
-              ? otherReason
-              : null,
-          cancelled_at:
-            nowIso,
-        })
-        .eq(
-          "id",
-          id
-        )
-        .neq(
-          "status",
-          "cancelled"
-        )
-        .select(
-          "id,status"
-        )
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!cancelledBooking) {
-        return jsonError(
-          "Booking could not be cancelled. It may have already been cancelled.",
-          409
-        );
-      }
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          "cancelled",
-        cancellation_reason:
-          cancellationReason,
-        cancellation_note:
-          reason ===
-          "Other"
-            ? otherReason
-            : null,
-        cancelled_at:
-          nowIso,
-      });
-    }
-
-    if (
-      action ===
-      "verify_discount"
-    ) {
-      if (!booking.promo_name) {
-        return jsonError(
-          "No discount was selected for this booking."
-        );
-      }
-
-      if (
-        booking.discount_verified
-      ) {
-        return jsonError(
-          "This discount has already been verified."
-        );
-      }
-
-      const discountAmount =
-        Math.round(
-          Number(
-            booking.estimated_total ||
-              0
-          ) *
-            0.05 *
-            100
-        ) / 100;
-
-      const {
-        data: verifiedBooking,
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          discount_verified:
-            true,
-          discount_verified_at:
-            nowIso,
-          discount_amount:
-            discountAmount,
-        })
-        .eq(
-          "id",
-          id
-        )
-        .eq(
-          "discount_verified",
-          false
-        )
-        .select(
-          "id,discount_verified,discount_verified_at,discount_amount"
-        )
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!verifiedBooking) {
-        return jsonError(
-          "Discount could not be verified. It may have already been updated.",
-          409
-        );
-      }
-
-      return NextResponse.json({
-        ok: true,
-        discount_verified:
-          true,
-        discount_verified_at:
-          nowIso,
-        discount_rate:
-          5,
-        discount_amount:
-          discountAmount,
-      });
-    }
-
-    if (
-      action ===
-      "reject_discount"
-    ) {
-      if (!booking.promo_name) {
-        return jsonError(
-          "No discount was selected for this booking."
-        );
-      }
-
-      const {
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          discount_verified:
-            false,
-          discount_verified_at:
-            null,
-          discount_amount:
-            0,
-        })
-        .eq(
-          "id",
-          id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.json({
-        ok: true,
-        discount_verified:
-          false,
-        discount_verified_at:
-          null,
-        discount_amount:
-          0,
-      });
-    }
-
-    if (
-      action ===
-      "unverify_discount"
-    ) {
-      const {
-        error,
-      } = await db
-        .from("bookings")
-        .update({
-          discount_verified:
-            false,
-          discount_verified_at:
-            null,
-          discount_amount:
-            0,
-        })
-        .eq(
-          "id",
-          id
-        );
-
-      if (error) {
-        throw error;
-      }
-
-      return NextResponse.json({
-        ok: true,
-        discount_verified:
-          false,
-        discount_verified_at:
-          null,
-        discount_amount:
-          0,
-      });
-    }
-
-    if (
-      action ===
-      "verify_payment"
-    ) {
-      const paymentId =
-        String(
-          body.payment_id ||
-            ""
-        ).trim();
-
-      if (!paymentId) {
-        return jsonError(
-          "Payment ID is required."
-        );
-      }
-
-      const {
-        data: payment,
-        error:
-          paymentLookupError,
-      } = await db
-        .from("payments")
-        .select(
-          "id,booking_id,amount,status,payment_type"
-        )
-        .eq(
-          "id",
-          paymentId
-        )
-        .eq(
-          "booking_id",
-          id
-        )
-        .maybeSingle();
-
-      if (
-        paymentLookupError
-      ) {
-        throw paymentLookupError;
-      }
-
-      if (!payment) {
-        return jsonError(
-          "Payment not found.",
-          404
-        );
-      }
-
-      if (
-        payment.status ===
-        "verified"
-      ) {
-        return jsonError(
-          "This payment is already verified."
-        );
-      }
-
-      const {
-        data: verifiedPayment,
-        error,
-      } = await db
-        .from("payments")
-        .update({
-          status:
-            "verified",
-          verified_at:
-            nowIso,
-        })
-        .eq(
-          "id",
-          paymentId
-        )
-        .eq(
-          "booking_id",
-          id
-        )
-        .select(
-          "id,status,verified_at"
-        )
-        .maybeSingle();
-
-      if (error) {
-        throw error;
-      }
-
-      if (!verifiedPayment) {
-        return jsonError(
-          "Payment could not be verified. It may have already been updated.",
-          409
-        );
-      }
-
-      return NextResponse.json({
-        ok: true,
-        payment_id:
-          paymentId,
-        status:
-          "verified",
-        verified_at:
-          nowIso,
-      });
-    }
-
-    if (
-      action === "complete"
-    ) {
-      if (
-        booking.status !==
-        "confirmed"
-      ) {
-        return jsonError(
-          "Only confirmed bookings can be marked completed."
-        );
-      }
-
-      const {
-        data: updatedBooking,
-        error:
-          completionUpdateError,
-      } = await db
-        .from("bookings")
-        .update({
-          status:
-            "completed",
-          completed_at:
-            nowIso,
-        })
-        .eq(
-          "id",
-          id
-        )
-        .eq(
-          "status",
-          "confirmed"
-        )
-        .select(
-          "id,status,reference_code,access_token,customer_name,email,preferred_date,preferred_time,estimated_total,discount_amount,removal,notes"
-        )
-        .maybeSingle();
-
-      if (
-        completionUpdateError
-      ) {
-        throw completionUpdateError;
-      }
-
-      if (!updatedBooking) {
-        return jsonError(
-          "Booking could not be marked completed. It may have already been completed.",
-          409
-        );
-      }
-
-      try {
-        const services =
-          await getBookingServices(
-            db,
-            id
-          );
-
-        await notifyBookingCompleted({
-          booking: {
-            id:
-              updatedBooking.id,
-            reference_code:
-              updatedBooking.reference_code,
-            access_token:
-              updatedBooking.access_token,
-            customer_name:
-              updatedBooking.customer_name,
-            email:
-              updatedBooking.email,
-            preferred_date:
-              updatedBooking.preferred_date,
-            preferred_time:
-              updatedBooking.preferred_time,
-            estimated_total:
-              updatedBooking.estimated_total,
-            discount_amount:
-              updatedBooking.discount_amount,
-            removal:
-              updatedBooking.removal,
-            notes:
-              updatedBooking.notes,
-          },
-          services:
-            services || [],
-        });
-      } catch (
-        notificationError
-      ) {
-        console.error(
-          "Completed booking customer email failed:",
-          notificationError
-        );
-      }
-
-      const reviewUrl =
-        `/review?booking_id=${encodeURIComponent(
-          id
-        )}`;
-
-      return NextResponse.json({
-        ok: true,
-        status:
-          "completed",
-        completed_at:
-          nowIso,
-        review_url:
-          reviewUrl,
-      });
-    }
-
-    return jsonError(
-      "Invalid booking action."
+    return handleBookingAction(
+      db,
+      request,
+      action,
+      body,
+      id
     );
-  } catch (error: any) {
+  } catch (
+    error: any
+  ) {
     console.error(
       "Admin bookings API error:",
       error
