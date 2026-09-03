@@ -27,7 +27,13 @@ type PaymentRow = {
     customer_name?: string | null;
     preferred_date?: string | null;
     preferred_time?: string | null;
+
+    // estimated_total is the ORIGINAL service subtotal.
     estimated_total?: number | string | null;
+
+    // Discount is stored separately from estimated_total.
+    discount_amount?: number | string | null;
+
     down_payment?: number | string | null;
     access_token?: string | null;
   } | null;
@@ -72,7 +78,9 @@ const methods = [
 ];
 
 function formatMoney(value: unknown) {
-  return `₱${Number(value || 0).toLocaleString(
+  const amount = Number(value || 0);
+
+  return `₱${amount.toLocaleString(
     "en-PH",
     {
       minimumFractionDigits: 2,
@@ -131,13 +139,38 @@ function isVerified(
   );
 }
 
+/**
+ * Net amount is the amount applied to the booking.
+ *
+ * Priority:
+ * 1. net_amount
+ * 2. amount
+ * 3. 0
+ */
 function paymentNet(
   payment: PaymentRow
 ) {
-  return Number(
+  const net = Number(
     payment.net_amount ??
       payment.amount ??
       0
+  );
+
+  return Number.isFinite(net)
+    ? net
+    : 0;
+}
+
+function isBookingPayment(
+  payment: PaymentRow
+) {
+  return (
+    payment.payment_type ===
+      "down_payment" ||
+    payment.payment_type ===
+      "booking_payment" ||
+    payment.payment_type ===
+      "balance"
   );
 }
 
@@ -149,6 +182,19 @@ function isDownPayment(
       "down_payment" ||
     payment.payment_type ===
       "booking_payment"
+  );
+}
+
+function isExtraPayment(
+  payment: PaymentRow
+) {
+  return (
+    payment.payment_type ===
+      "tip" ||
+    payment.payment_type ===
+      "additional_charge" ||
+    payment.payment_type ===
+      "other"
   );
 }
 
@@ -487,14 +533,46 @@ export default function PaymentQueue({
                 "submitted";
 
               /*
-               * Calculate the booking balance
-               * from verified payment records.
+               * BOOKING TOTAL
                *
-               * Down payment + balance payments
-               * reduce the booking balance.
+               * estimated_total is the original
+               * service subtotal.
                *
-               * Tips, additional charges and
-               * "other" are kept separate.
+               * discount_amount is stored separately.
+               *
+               * Therefore:
+               *
+               * booking total =
+               * estimated_total - discount_amount
+               */
+              const serviceSubtotal =
+                Number(
+                  booking?.estimated_total ||
+                    0
+                );
+
+              const discountAmount =
+                Number(
+                  booking?.discount_amount ||
+                    0
+                );
+
+              const bookingTotal =
+                Math.max(
+                  0,
+                  serviceSubtotal -
+                    discountAmount
+                );
+
+              /*
+               * VERIFIED BOOKING PAYMENTS
+               *
+               * Only down payment,
+               * booking payment and balance
+               * payments reduce the booking balance.
+               *
+               * Tips, additional charges and other
+               * payments are kept separate.
                */
               const bookingPayments =
                 payments.filter(
@@ -502,11 +580,7 @@ export default function PaymentQueue({
                     item.booking_id ===
                       payment.booking_id &&
                     isVerified(item) &&
-                    (
-                      isDownPayment(item) ||
-                      item.payment_type ===
-                        "balance"
-                    )
+                    isBookingPayment(item)
                 );
 
               const verifiedBookingPaid =
@@ -520,18 +594,60 @@ export default function PaymentQueue({
                   0
                 );
 
-              const bookingTotal =
-                Number(
-                  booking?.estimated_total ||
-                    0
-                );
-
               const remaining =
                 Math.max(
                   0,
                   bookingTotal -
                     verifiedBookingPaid
                 );
+
+              /*
+               * Keep extra payments separate so
+               * they don't incorrectly reduce the
+               * actual booking balance.
+               */
+              const verifiedExtraPayments =
+                payments.filter(
+                  (item) =>
+                    item.booking_id ===
+                      payment.booking_id &&
+                    isVerified(item) &&
+                    isExtraPayment(item)
+                );
+
+              const verifiedTips =
+                verifiedExtraPayments
+                  .filter(
+                    (item) =>
+                      item.payment_type ===
+                      "tip"
+                  )
+                  .reduce(
+                    (
+                      sum,
+                      item
+                    ) =>
+                      sum +
+                      paymentNet(item),
+                    0
+                  );
+
+              const verifiedAdditionalCharges =
+                verifiedExtraPayments
+                  .filter(
+                    (item) =>
+                      item.payment_type ===
+                      "additional_charge"
+                  )
+                  .reduce(
+                    (
+                      sum,
+                      item
+                    ) =>
+                      sum +
+                      paymentNet(item),
+                    0
+                  );
 
               const displayDate =
                 payment.paid_at ||
@@ -669,7 +785,7 @@ export default function PaymentQueue({
                     </div>
                   </div>
 
-                  {/* ACCOUNTING BREAKDOWN */}
+                  {/* PAYMENT BREAKDOWN */}
 
                   <div
                     style={{
@@ -767,24 +883,159 @@ export default function PaymentQueue({
                       >
                         The{" "}
                         {formatMoney(fee)}{" "}
-                        processing fee is
-                        separate from the
-                        booking amount and is
-                        not deducted from the
-                        customer's booking
-                        balance.
+                        processing fee is shown
+                        separately from the
+                        payment amount.
                       </div>
                     )}
                   </div>
 
-                  {/* BOOKING BALANCE */}
+                  {/* BOOKING TOTAL / BALANCE */}
 
-                  {(
-                    isDownPayment(
-                      payment
-                    ) ||
-                    payment.payment_type ===
-                      "balance"
+                  {isBookingPayment(
+                    payment
+                  ) && (
+                    <div
+                      style={{
+                        marginTop: 16,
+                        padding: 14,
+                        border:
+                          "1px solid var(--line)",
+                        borderRadius: 12,
+                      }}
+                    >
+                      <div
+                        className="kicker"
+                        style={{
+                          marginBottom: 9,
+                        }}
+                      >
+                        Booking payment
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gap: 7,
+                          fontSize: 13,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <span className="muted">
+                            Service subtotal
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              serviceSubtotal
+                            )}
+                          </strong>
+                        </div>
+
+                        {discountAmount >
+                          0 && (
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              justifyContent:
+                                "space-between",
+                              gap: 12,
+                            }}
+                          >
+                            <span className="muted">
+                              Discount
+                            </span>
+
+                            <strong>
+                              −
+                              {formatMoney(
+                                discountAmount
+                              )}
+                            </strong>
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                            paddingTop: 8,
+                            borderTop:
+                              "1px solid var(--line)",
+                          }}
+                        >
+                          <span>
+                            Booking total
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              bookingTotal
+                            )}
+                          </strong>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <span className="muted">
+                            Verified payments
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              verifiedBookingPaid
+                            )}
+                          </strong>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                            paddingTop: 8,
+                            borderTop:
+                              "1px solid var(--line)",
+                          }}
+                        >
+                          <span>
+                            Balance remaining
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              remaining
+                            )}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* EXTRA PAYMENT SUMMARY */}
+
+                  {isExtraPayment(
+                    payment
                   ) && (
                     <div
                       style={{
@@ -806,18 +1057,115 @@ export default function PaymentQueue({
                         }}
                       >
                         <span className="muted">
-                          Booking balance
-                          remaining
+                          Verified{" "}
+                          {paymentTypeLabel(
+                            payment.payment_type
+                          )}
                         </span>
 
                         <strong>
-                          {formatMoney(
-                            remaining
-                          )}
+                          {formatMoney(net)}
                         </strong>
                       </div>
+
+                      {verified && (
+                        <div
+                          className="muted"
+                          style={{
+                            marginTop: 7,
+                            fontSize: 12,
+                          }}
+                        >
+                          This payment does
+                          not reduce the
+                          booking balance.
+                        </div>
+                      )}
                     </div>
                   )}
+
+                  {/* ACCOUNT TOTALS */}
+
+                  {isBookingPayment(
+                    payment
+                  ) &&
+                    (verifiedTips > 0 ||
+                      verifiedAdditionalCharges >
+                        0) && (
+                      <div
+                        style={{
+                          marginTop: 14,
+                          padding:
+                            "13px 14px",
+                          border:
+                            "1px solid var(--line)",
+                          borderRadius: 12,
+                        }}
+                      >
+                        <div
+                          className="kicker"
+                          style={{
+                            marginBottom: 8,
+                          }}
+                        >
+                          Other verified payments
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gap: 6,
+                            fontSize: 13,
+                          }}
+                        >
+                          {verifiedAdditionalCharges >
+                            0 && (
+                            <div
+                              style={{
+                                display:
+                                  "flex",
+                                justifyContent:
+                                  "space-between",
+                                gap: 12,
+                              }}
+                            >
+                              <span className="muted">
+                                Additional charges
+                              </span>
+
+                              <strong>
+                                {formatMoney(
+                                  verifiedAdditionalCharges
+                                )}
+                              </strong>
+                            </div>
+                          )}
+
+                          {verifiedTips >
+                            0 && (
+                            <div
+                              style={{
+                                display:
+                                  "flex",
+                                justifyContent:
+                                  "space-between",
+                                gap: 12,
+                              }}
+                            >
+                              <span className="muted">
+                                Tips
+                              </span>
+
+                              <strong>
+                                {formatMoney(
+                                  verifiedTips
+                                )}
+                              </strong>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                   {/* NOTE */}
 
@@ -974,10 +1322,138 @@ export default function PaymentQueue({
                       >
                         Current booking
                         balance remaining:{" "}
-                        {formatMoney(
-                          remaining
-                        )}
+                        <strong>
+                          {formatMoney(
+                            remaining
+                          )}
+                        </strong>
                       </p>
+
+                      <div
+                        style={{
+                          marginTop: 12,
+                          padding:
+                            "10px 12px",
+                          border:
+                            "1px solid var(--line)",
+                          borderRadius: 10,
+                          fontSize: 12,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                          }}
+                        >
+                          <span className="muted">
+                            Service subtotal
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              serviceSubtotal
+                            )}
+                          </strong>
+                        </div>
+
+                        {discountAmount >
+                          0 && (
+                          <div
+                            style={{
+                              display:
+                                "flex",
+                              justifyContent:
+                                "space-between",
+                              gap: 12,
+                              marginTop: 5,
+                            }}
+                          >
+                            <span className="muted">
+                              Discount
+                            </span>
+
+                            <strong>
+                              −
+                              {formatMoney(
+                                discountAmount
+                              )}
+                            </strong>
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                            marginTop: 7,
+                            paddingTop: 7,
+                            borderTop:
+                              "1px solid var(--line)",
+                          }}
+                        >
+                          <span>
+                            Booking total
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              bookingTotal
+                            )}
+                          </strong>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                            marginTop: 5,
+                          }}
+                        >
+                          <span className="muted">
+                            Paid toward booking
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              verifiedBookingPaid
+                            )}
+                          </strong>
+                        </div>
+
+                        <div
+                          style={{
+                            display:
+                              "flex",
+                            justifyContent:
+                              "space-between",
+                            gap: 12,
+                            marginTop: 7,
+                            paddingTop: 7,
+                            borderTop:
+                              "1px solid var(--line)",
+                          }}
+                        >
+                          <span>
+                            Balance remaining
+                          </span>
+
+                          <strong>
+                            {formatMoney(
+                              remaining
+                            )}
+                          </strong>
+                        </div>
+                      </div>
 
                       <div
                         style={{
