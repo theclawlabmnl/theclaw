@@ -571,6 +571,9 @@ async function resolveServices(
  * Used by BookingForm when opening:
  *
  * /book?token=BOOKING_TOKEN
+ *
+ * This loads the existing draft so the form
+ * can populate all previously entered details.
  */
 export async function GET(
   request: NextRequest
@@ -682,6 +685,9 @@ export async function GET(
       );
     }
 
+    /*
+     * Check which existing files are attached.
+     */
     const {
       data: existingFiles,
       error:
@@ -719,6 +725,13 @@ export async function GET(
           "student_registration"
       );
 
+    /*
+     * The database stores more descriptive promo
+     * names for referral/student discounts.
+     *
+     * The booking form needs the original select
+     * value instead.
+     */
     let promoName =
       booking.promo_name;
 
@@ -1791,25 +1804,14 @@ export async function POST(
 /*
  * PATCH
  *
- * Supports:
+ * Two uses:
  *
- * 1. CUSTOMER CANCELLATION
- *
- *    PATCH /api/bookings
- *    {
- *      token: "...",
- *      action: "cancel"
- *    }
- *
- * 2. Submit an existing draft:
- *
+ * 1. Submit an existing draft:
  *    PATCH /api/bookings?token=...
  *
- * 3. Update an existing draft:
- *
+ * 2. Update an existing draft from Edit Request:
  *    PATCH /api/bookings
- *    multipart FormData
- *    containing edit_token
+ *    with multipart FormData containing edit_token.
  */
 export async function PATCH(
   request: NextRequest
@@ -1826,210 +1828,7 @@ export async function PATCH(
       );
 
     /*
-     * ============================================================
-     * CUSTOMER CANCEL BOOKING
-     * ============================================================
-     *
-     * This must happen BEFORE the normal draft PATCH logic.
-     *
-     * Cancel button sends:
-     *
-     * {
-     *   token,
-     *   action: "cancel"
-     * }
-     *
-     * The token is therefore read from JSON body,
-     * not from ?token=.
-     */
-    if (
-      !isMultipart &&
-      contentType.includes(
-        "application/json"
-      )
-    ) {
-      let body: any = null;
-
-      try {
-        body =
-          await request.json();
-      } catch {
-        body = null;
-      }
-
-      if (
-        body?.action ===
-        "cancel"
-      ) {
-        const cancelToken =
-          String(
-            body?.token ||
-              ""
-          ).trim();
-
-        if (!cancelToken) {
-          return NextResponse.json(
-            {
-              error:
-                "Missing booking token.",
-            },
-            {
-              status: 400,
-            }
-          );
-        }
-
-        const db =
-          supabaseAdmin();
-
-        const {
-          data: booking,
-          error:
-            bookingError,
-        } = await db
-          .from("bookings")
-          .select(
-            `
-            id,
-            status,
-            access_token,
-            reference_code
-            `
-          )
-          .eq(
-            "access_token",
-            cancelToken
-          )
-          .maybeSingle();
-
-        if (
-          bookingError
-        ) {
-          throw bookingError;
-        }
-
-        if (
-          !booking
-        ) {
-          return NextResponse.json(
-            {
-              error:
-                "Booking not found.",
-            },
-            {
-              status: 404,
-            }
-          );
-        }
-
-        /*
-         * Customer is only allowed to cancel
-         * these active statuses.
-         *
-         * draft is intentionally NOT included.
-         * A draft is not an active appointment request.
-         */
-        const cancellableStatuses =
-          [
-            "pending",
-            "approved",
-            "confirmed",
-          ];
-
-        if (
-          !cancellableStatuses.includes(
-            String(
-              booking.status
-            )
-          )
-        ) {
-          return NextResponse.json(
-            {
-              error:
-                "This booking can no longer be cancelled.",
-            },
-            {
-              status: 400,
-            }
-          );
-        }
-
-        /*
-         * Atomic status update.
-         *
-         * The .eq("status", currentStatus) prevents
-         * two requests from cancelling/updating the
-         * same booking incorrectly.
-         *
-         * Once status becomes "cancelled", the booking
-         * is no longer considered an active booking by
-         * the availability system, so the appointment
-         * slot becomes available again.
-         */
-        const {
-          data: cancelledBooking,
-          error:
-            cancelError,
-        } = await db
-          .from("bookings")
-          .update({
-            status:
-              "cancelled",
-          })
-          .eq(
-            "id",
-            booking.id
-          )
-          .eq(
-            "access_token",
-            cancelToken
-          )
-          .in(
-            "status",
-            cancellableStatuses
-          )
-          .select(
-            "id,status,reference_code"
-          )
-          .maybeSingle();
-
-        if (
-          cancelError
-        ) {
-          throw cancelError;
-        }
-
-        if (
-          !cancelledBooking
-        ) {
-          return NextResponse.json(
-            {
-              error:
-                "This booking could not be cancelled because its status has already changed. Please refresh the page.",
-            },
-            {
-              status: 409,
-            }
-          );
-        }
-
-        return NextResponse.json({
-          ok: true,
-
-          status:
-            "cancelled",
-
-          reference_code:
-            cancelledBooking.reference_code ||
-            booking.reference_code,
-        });
-      }
-    }
-
-    /*
-     * ============================================================
      * EDIT EXISTING DRAFT
-     * ============================================================
      */
     if (isMultipart) {
       const formData =
@@ -2349,6 +2148,9 @@ export async function PATCH(
             ""
         ).toLowerCase();
 
+      /*
+       * CURRENT PROMO
+       */
       if (
         promoChoice.startsWith(
           "promo:"
@@ -2418,6 +2220,9 @@ export async function PATCH(
           );
       }
 
+      /*
+       * FIRST-TIME
+       */
       if (
         isFirstTime
       ) {
@@ -2428,6 +2233,9 @@ export async function PATCH(
           baseTotal * 0.05;
       }
 
+      /*
+       * STUDENT / PWD / SC
+       */
       if (
         isStudentPwdSc
       ) {
@@ -2484,8 +2292,8 @@ export async function PATCH(
         if (
           !keepExistingValidId &&
           !(
-            validId instanceof File ||
-            validId?.size > 0
+            validId instanceof File &&
+            validId.size > 0
           )
         ) {
           return NextResponse.json(
@@ -2583,6 +2391,9 @@ export async function PATCH(
         }
       }
 
+      /*
+       * REFERRAL
+       */
       if (
         isReferral
       ) {
@@ -2611,6 +2422,9 @@ export async function PATCH(
           )}`;
       }
 
+      /*
+       * NO DISCOUNT
+       */
       if (
         promoChoice ===
         "none"
@@ -2637,6 +2451,10 @@ export async function PATCH(
           discount * 100
         ) / 100;
 
+      /*
+       * Re-check availability using the NEW
+       * duration/date/time.
+       */
       const availability =
         await validateSelectedSlot(
           request,
@@ -2665,6 +2483,9 @@ export async function PATCH(
         );
       }
 
+      /*
+       * UPDATE MAIN BOOKING
+       */
       const {
         error:
           updateBookingError,
@@ -2729,6 +2550,10 @@ export async function PATCH(
             discount_amount:
               discount,
 
+            /*
+             * Any edit to a discount needs to be
+             * verified again by admin.
+             */
             discount_verified:
               false,
 
@@ -2787,6 +2612,9 @@ export async function PATCH(
         throw updateBookingError;
       }
 
+      /*
+       * REPLACE BOOKING SERVICES
+       */
       const {
         error:
           deleteServicesError,
@@ -2853,6 +2681,12 @@ export async function PATCH(
         throw insertServicesError;
       }
 
+      /*
+       * INSPIRATION FILES
+       *
+       * If new files were selected, replace the
+       * existing inspiration files.
+       */
       if (
         inspirationFiles.length >
         0
@@ -2987,6 +2821,12 @@ export async function PATCH(
         }
       }
 
+      /*
+       * STUDENT DOCUMENTS
+       *
+       * New documents replace the corresponding
+       * existing document.
+       */
       if (
         isStudentPwdSc
       ) {
@@ -3159,6 +2999,13 @@ export async function PATCH(
         }
       }
 
+      /*
+       * Keep the SAME token.
+       *
+       * This is important because the customer is
+       * editing the same booking rather than creating
+       * another booking.
+       */
       return NextResponse.json({
         token:
           existingBooking.access_token,
@@ -3166,11 +3013,160 @@ export async function PATCH(
     }
 
     /*
-     * ============================================================
-     * SUBMIT EXISTING DRAFT
-     * ============================================================
+     * CUSTOMER CANCELLATION
+     *
+     * Accept the token from either the JSON body or the query string.
+     * This supports both /api/bookings with { action, token } and
+     * /api/bookings?token=... with { action }.
      */
+    let body: any = null;
 
+    try {
+      body = await request.json();
+    } catch {
+      body = null;
+    }
+
+    const action = String(
+      body?.action ||
+        ""
+    )
+      .trim()
+      .toLowerCase();
+
+    if (
+      action === "cancel" ||
+      action === "cancel_booking"
+    ) {
+      const url = new URL(request.url);
+
+      const bodyToken = String(
+        body?.token ||
+          ""
+      ).trim();
+
+      const queryToken = String(
+        url.searchParams.get(
+          "token"
+        ) ||
+          ""
+      ).trim();
+
+      const token =
+        bodyToken || queryToken;
+
+      if (!token) {
+        return NextResponse.json(
+          {
+            error: "Missing token.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const db =
+        supabaseAdmin();
+
+      const {
+        data: booking,
+        error: bookingError,
+      } = await db
+        .from("bookings")
+        .select(
+          "id,status,access_token"
+        )
+        .eq(
+          "access_token",
+          token
+        )
+        .maybeSingle();
+
+      if (bookingError) {
+        throw bookingError;
+      }
+
+      if (!booking) {
+        return NextResponse.json(
+          {
+            error: "Booking not found.",
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      const customerCancellableStatuses = [
+        "pending",
+        "approved",
+        "payment_submitted",
+        "confirmed",
+      ];
+
+      if (
+        !customerCancellableStatuses.includes(
+          String(booking.status)
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "This booking can no longer be cancelled online.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const {
+        data: cancelledBooking,
+        error: cancelError,
+      } = await db
+        .from("bookings")
+        .update({
+          status: "cancelled",
+        })
+        .eq(
+          "id",
+          booking.id
+        )
+        .eq(
+          "status",
+          booking.status
+        )
+        .select(
+          "id,status"
+        )
+        .maybeSingle();
+
+      if (cancelError) {
+        throw cancelError;
+      }
+
+      if (!cancelledBooking) {
+        return NextResponse.json(
+          {
+            error:
+              "This booking has already been updated and can no longer be cancelled.",
+          },
+          {
+            status: 409,
+          }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        status: "cancelled",
+      });
+    }
+
+    /*
+     * SUBMIT EXISTING DRAFT
+     */
     const token =
       new URL(
         request.url
