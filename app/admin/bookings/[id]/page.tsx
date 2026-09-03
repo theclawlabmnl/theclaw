@@ -1575,10 +1575,15 @@ export default async function BookingDetail({ params }: PageProps) {
 
             {/* BOOKING STATUS CONTROLS */}
 
-            <BookingActions
-              id={booking.id}
-              status={booking.status}
-            />
+           <BookingActions
+  id={booking.id}
+  status={booking.status}
+  confirmationHref={
+    booking.access_token
+      ? `/confirmation/${booking.access_token}`
+      : null
+  }
+/>
 
             {/* EDIT BOOKING */}
 
