@@ -52,9 +52,7 @@ export default async function Confirmed({
 
   const db = supabaseAdmin();
 
-  const {
-    data: booking,
-  } = await db
+  const { data: booking } = await db
     .from("bookings")
     .select("*,booking_services(*)")
     .eq("access_token", token)
@@ -63,34 +61,25 @@ export default async function Confirmed({
   /*
    * CONFIRMATION NOT AVAILABLE
    */
-  if (
-    !booking ||
-    booking.status !== "confirmed"
-  ) {
+  if (!booking || booking.status !== "confirmed") {
     return (
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
 
-            {/* BRAND */}
             <div className="status-brand">
               The Claw Lab MNL
             </div>
 
-            {/* HEADER */}
             <div className="status-header">
-              <h1>
-                Appointment
-              </h1>
+              <h1>Appointment</h1>
             </div>
 
-            {/* STATUS */}
             <div className="status-pill status-pill-pending">
               <span className="status-pill-dot" />
               Not Available Yet
             </div>
 
-            {/* MESSAGE */}
             <div className="status-message">
               <h2>
                 Confirmation is not available yet
@@ -104,7 +93,6 @@ export default async function Confirmed({
               </p>
             </div>
 
-            {/* ACTION */}
             <div className="status-action">
               <Link
                 href={`/status/${token}`}
@@ -114,14 +102,10 @@ export default async function Confirmed({
               </Link>
             </div>
 
-            {/* CONTACT */}
             <div className="status-contact">
-              <p>
-                Need help? Message us.
-              </p>
+              <p>Need help? Message us.</p>
 
               <div className="status-contact-links">
-
                 <a
                   href="https://instagram.com/theclawlabmnl"
                   target="_blank"
@@ -137,11 +121,9 @@ export default async function Confirmed({
                 >
                   Messenger
                 </a>
-
               </div>
             </div>
 
-            {/* FOOTER */}
             <div className="status-footer">
               <Link href="/status">
                 Check another booking
@@ -169,9 +151,6 @@ export default async function Confirmed({
 
   /*
    * 48-HOUR CANCELLATION POLICY
-   *
-   * The cancellation window starts from the
-   * exact time the booking was confirmed.
    */
   const cancellationDeadline =
     getCancellationDeadline(
@@ -180,14 +159,11 @@ export default async function Confirmed({
 
   const cancellationRefundEligible =
     cancellationDeadline !== null &&
-    Date.now() <=
-      cancellationDeadline.getTime();
+    Date.now() <= cancellationDeadline.getTime();
 
   return (
     <main className="status-page">
-
       <div className="status-page-inner">
-
         <div className="status-card">
 
           {/* BRAND */}
@@ -223,7 +199,6 @@ export default async function Confirmed({
 
           {/* BOOKING SUMMARY */}
           <section className="status-summary">
-
             <div className="status-summary-title">
               Booking Summary
             </div>
@@ -231,9 +206,7 @@ export default async function Confirmed({
             <div className="status-summary-grid">
 
               <div className="status-summary-item">
-                <span>
-                  Client
-                </span>
+                <span>Client</span>
 
                 <strong>
                   {booking.customer_name || "—"}
@@ -241,9 +214,7 @@ export default async function Confirmed({
               </div>
 
               <div className="status-summary-item">
-                <span>
-                  Appointment
-                </span>
+                <span>Appointment</span>
 
                 <strong>
                   {formatDate(
@@ -255,9 +226,7 @@ export default async function Confirmed({
               </div>
 
               <div className="status-summary-item">
-                <span>
-                  Reference
-                </span>
+                <span>Reference</span>
 
                 <strong>
                   {booking.reference_code || "—"}
@@ -265,7 +234,6 @@ export default async function Confirmed({
               </div>
 
             </div>
-
           </section>
 
           {/* 48-HOUR CANCELLATION POLICY */}
@@ -285,7 +253,6 @@ export default async function Confirmed({
               color: "#000",
             }}
           >
-
             <strong
               style={{
                 display: "block",
@@ -385,26 +352,16 @@ export default async function Confirmed({
                 cancellation.
               </p>
             )}
-
           </section>
 
-          {/* CONFIRMATION ACTION */}
-          <div className="status-action">
-
-            {/* No back button here */}
-
-          </div>
-
-          {/* SERVICES */}
+          {/* APPOINTMENT SUMMARY */}
           <section
             style={{
               marginTop: "24px",
               paddingTop: "22px",
-              borderTop:
-                "1px solid var(--line)",
+              borderTop: "1px solid var(--line)",
             }}
           >
-
             <div className="status-summary-title">
               Appointment Summary
             </div>
@@ -428,17 +385,14 @@ export default async function Confirmed({
                     key={item.id}
                     style={{
                       display: "flex",
-                      justifyContent:
-                        "space-between",
-                      alignItems:
-                        "flex-start",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
                       gap: "16px",
                       padding: "13px 0",
                       borderBottom:
                         "1px solid var(--line)",
                     }}
                   >
-
                     <div
                       style={{
                         minWidth: 0,
@@ -463,13 +417,11 @@ export default async function Confirmed({
 
                     <strong
                       style={{
-                        whiteSpace:
-                          "nowrap",
+                        whiteSpace: "nowrap",
                       }}
                     >
                       {peso(item.price)}
                     </strong>
-
                   </div>
                 )
               )}
@@ -483,12 +435,10 @@ export default async function Confirmed({
                 marginTop: "18px",
               }}
             >
-
               <div
                 style={{
                   display: "flex",
-                  justifyContent:
-                    "space-between",
+                  justifyContent: "space-between",
                   gap: "12px",
                 }}
               >
@@ -504,8 +454,7 @@ export default async function Confirmed({
               <div
                 style={{
                   display: "flex",
-                  justifyContent:
-                    "space-between",
+                  justifyContent: "space-between",
                   gap: "12px",
                 }}
               >
@@ -521,13 +470,11 @@ export default async function Confirmed({
               <div
                 style={{
                   display: "flex",
-                  justifyContent:
-                    "space-between",
+                  justifyContent: "space-between",
                   gap: "12px",
                   marginTop: "4px",
                   paddingTop: "12px",
-                  borderTop:
-                    "1px solid var(--line)",
+                  borderTop: "1px solid var(--line)",
                 }}
               >
                 <strong>
@@ -538,9 +485,7 @@ export default async function Confirmed({
                   {peso(remaining)}
                 </strong>
               </div>
-
             </div>
-
           </section>
 
           {/* BEFORE YOUR APPOINTMENT */}
@@ -548,11 +493,9 @@ export default async function Confirmed({
             style={{
               marginTop: "24px",
               paddingTop: "22px",
-              borderTop:
-                "1px solid var(--line)",
+              borderTop: "1px solid var(--line)",
             }}
           >
-
             <div className="status-summary-title">
               Before Your Appointment
             </div>
@@ -608,18 +551,15 @@ export default async function Confirmed({
             >
               ← Back to Booking Status
             </Link>
-
           </section>
 
           {/* CONTACT */}
           <div className="status-contact">
-
             <p>
               Questions? Message us.
             </p>
 
             <div className="status-contact-links">
-
               <a
                 href="https://instagram.com/theclawlabmnl"
                 target="_blank"
@@ -635,24 +575,18 @@ export default async function Confirmed({
               >
                 Messenger
               </a>
-
             </div>
-
           </div>
 
           {/* FOOTER */}
           <div className="status-footer">
-
             <Link href={`/status/${token}`}>
               ← Back to Booking Status
             </Link>
-
           </div>
 
         </div>
-
       </div>
-
     </main>
   );
 }
