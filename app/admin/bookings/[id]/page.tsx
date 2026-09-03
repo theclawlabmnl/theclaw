@@ -426,8 +426,9 @@ function activityValueRows(
       return [
         {
           label: "Value",
-          value:
-            normalized,
+          value: String(
+            normalized
+          ),
         },
       ];
     }
