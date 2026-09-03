@@ -99,6 +99,30 @@ export default function BookingActions({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  function getActionForStatus(
+    nextStatus: BookingStatus
+  ): string | null {
+    switch (nextStatus) {
+      case "approved":
+        return "approve";
+
+      case "rejected":
+        return "reject";
+
+      case "cancelled":
+        return "cancel";
+
+      case "confirmed":
+        return "verify_payment";
+
+      case "completed":
+        return "complete";
+
+      default:
+        return null;
+    }
+  }
+
   async function updateStatus(
     nextStatus: BookingStatus,
     extra: Record<string, unknown> = {}
@@ -109,6 +133,15 @@ export default function BookingActions({
       deleteLoading ||
       overrideLoading
     ) {
+      return;
+    }
+
+    const action = getActionForStatus(nextStatus);
+
+    if (!action) {
+      setError(
+        `Unable to change booking to ${statusLabels[nextStatus]}.`
+      );
       return;
     }
 
@@ -126,8 +159,7 @@ export default function BookingActions({
           },
           body: JSON.stringify({
             id,
-            action: "status",
-            status: nextStatus,
+            action,
             ...extra,
           }),
         }
