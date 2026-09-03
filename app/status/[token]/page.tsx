@@ -439,6 +439,22 @@ export default async function Status({
             </div>
           </section>
 
+          {/* VIEW CONFIRMATION — DIRECTLY UNDER BOOKING SUMMARY */}
+          {canViewConfirmation && (
+            <Link
+              href={`/confirmation/${token}`}
+              className="status-primary-button"
+              style={{
+                marginTop: "12px",
+                background: "#f3d6dc",
+                color: "#000",
+                borderColor: "#f3d6dc",
+              }}
+            >
+              View Confirmation
+            </Link>
+          )}
+
           {/* ACTION */}
           <div className="status-action">
 
@@ -503,6 +519,7 @@ export default async function Status({
             {status === "confirmed" && (
               <section
                 style={{
+                  marginTop: "12px",
                   marginBottom: "12px",
                   padding: "12px 14px",
                   borderRadius: "8px",
@@ -613,16 +630,6 @@ export default async function Status({
                 label={cancelLabel}
                 confirmedAt={booking.confirmed_at}
               />
-            )}
-
-            {/* CONFIRMED ONLY */}
-            {canViewConfirmation && (
-              <Link
-                href={`/confirmation/${token}`}
-                className="status-primary-button"
-              >
-                View Confirmation
-              </Link>
             )}
 
             {/* PAYMENT SUBMITTED */}
