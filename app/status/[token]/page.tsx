@@ -193,6 +193,7 @@ export default async function Status({
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
+
             <div className="status-brand">
               The Claw Lab MNL
             </div>
@@ -236,6 +237,7 @@ export default async function Status({
                 Back to TheClawLabMNL Homepage
               </Link>
             </div>
+
           </div>
         </div>
       </main>
@@ -255,6 +257,7 @@ export default async function Status({
       <main className="status-page">
         <div className="status-page-inner">
           <div className="status-card">
+
             <div className="status-brand">
               The Claw Lab MNL
             </div>
@@ -302,6 +305,7 @@ export default async function Status({
                 Back to TheClawLabMNL Homepage
               </Link>
             </div>
+
           </div>
         </div>
       </main>
@@ -314,14 +318,12 @@ export default async function Status({
 
   /*
    * 48-HOUR CANCELLATION POLICY
-   *
-   * The 48-hour period begins at the exact
-   * time the booking is confirmed.
    */
-  const cancellationDeadline = getCancellationDeadline(
-    status,
-    booking.confirmed_at
-  );
+  const cancellationDeadline =
+    getCancellationDeadline(
+      status,
+      booking.confirmed_at
+    );
 
   const cancellationRefundEligible =
     status === "confirmed" &&
@@ -330,6 +332,9 @@ export default async function Status({
 
   /*
    * VIEW CONFIRMATION
+   *
+   * Actual confirmation route:
+   * /confirmed/[token]
    */
   const canViewConfirmation =
     status === "confirmed";
@@ -359,6 +364,7 @@ export default async function Status({
 
   return (
     <main className="status-page">
+
       {status === "payment_submitted" && (
         <StatusAutoRefresh />
       )}
@@ -399,6 +405,7 @@ export default async function Status({
 
           {/* BOOKING SUMMARY */}
           <section className="status-summary">
+
             <div className="status-summary-title">
               Booking Summary
             </div>
@@ -437,12 +444,13 @@ export default async function Status({
               </div>
 
             </div>
+
           </section>
 
-          {/* VIEW CONFIRMATION — DIRECTLY UNDER BOOKING SUMMARY */}
+          {/* VIEW CONFIRMATION */}
           {canViewConfirmation && (
             <Link
-              href={`/confirmation/${token}`}
+              href={`/confirmed/${token}`}
               className="status-primary-button"
               style={{
                 marginTop: "12px",
@@ -583,11 +591,12 @@ export default async function Status({
                           lineHeight: 1.5,
                         }}
                       >
-                        You may cancel within this 48-hour
-                        window and your booking/down payment
-                        is eligible for a refund, minus any
-                        applicable non-refundable payment
-                        processing fees.
+                        You may cancel within this
+                        48-hour window and your
+                        booking/down payment is eligible
+                        for a refund, minus any applicable
+                        non-refundable payment processing
+                        fees.
                       </p>
                     ) : (
                       <p
@@ -623,7 +632,7 @@ export default async function Status({
               </section>
             )}
 
-            {/* PENDING / APPROVED / CONFIRMED CANCELLATION */}
+            {/* CANCELLATION */}
             {canCancel && (
               <CancelBookingButton
                 token={token}
@@ -650,7 +659,6 @@ export default async function Status({
             {/* COMPLETED */}
             {status === "completed" && (
               <>
-                {/* REVIEW REQUEST */}
                 <section
                   style={{
                     marginTop: "4px",
@@ -690,7 +698,6 @@ export default async function Status({
                   </p>
                 </section>
 
-                {/* LEAVE A REVIEW */}
                 <Link
                   href={`/review/${booking.access_token}?booking_id=${encodeURIComponent(
                     booking.id
@@ -700,7 +707,6 @@ export default async function Status({
                   Leave a Review ♡
                 </Link>
 
-                {/* BOOK AGAIN */}
                 <Link
                   href="/book"
                   className="status-primary-button"
@@ -720,6 +726,7 @@ export default async function Status({
 
           {/* CONTACT */}
           <div className="status-contact">
+
             <p>
               Questions? Message us.
             </p>
@@ -743,6 +750,7 @@ export default async function Status({
               </a>
 
             </div>
+
           </div>
 
           {/* FOOTER */}
