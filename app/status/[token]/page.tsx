@@ -330,32 +330,12 @@ export default async function Status({
 
   /*
    * VIEW CONFIRMATION
-   *
-   * Only confirmed bookings can view
-   * their confirmation.
    */
   const canViewConfirmation =
     status === "confirmed";
 
   /*
    * CUSTOMER CANCELLATION
-   *
-   * Pending:
-   * Customer may cancel their request.
-   *
-   * Approved:
-   * Customer may cancel while the
-   * 3-hour payment window is active.
-   *
-   * Payment submitted:
-   * Do not allow cancellation while
-   * payment proof is being reviewed.
-   *
-   * Confirmed:
-   * Customer may cancel their appointment.
-   *
-   * Completed / cancelled / rejected:
-   * No cancellation button.
    */
   const canCancel =
     status === "pending" ||
@@ -601,9 +581,9 @@ export default async function Status({
                         }}
                       >
                         You may still cancel your booking,
-                        but the booking/down payment is now
+                        but the booking/down payment is now{" "}
                         <strong>
-                          {" "}non-refundable
+                          non-refundable
                         </strong>
                         .
                       </p>
@@ -631,6 +611,7 @@ export default async function Status({
               <CancelBookingButton
                 token={token}
                 label={cancelLabel}
+                confirmedAt={booking.confirmed_at}
               />
             )}
 
