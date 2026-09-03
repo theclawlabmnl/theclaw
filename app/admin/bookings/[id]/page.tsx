@@ -1,1614 +1,3131 @@
-export const dynamic = "force-dynamic";
-
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { formatDate, peso } from "@/lib/utils";
 
 import BookingActions from "@/components/BookingActions";
 import BookingPaymentActions from "@/components/BookingPaymentActions";
-
-function isImage(path: string): boolean {
-  return /\.(jpg|jpeg|png|webp|gif|heic|heif)$/i.test(path);
-}
-
-function formatTime12(time: string | null): string {
-  if (!time) return "—";
-
-  const parts = time.split(":");
-  const hour = Number(parts[0]);
-  const minute = Number(parts[1] || 0);
-
-  if (Number.isNaN(hour)) return time;
-
-  const suffix = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour % 12 || 12;
-
-  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "approved":
-      return "Approved · Payment Required";
-    case "payment_submitted":
-      return "Payment Submitted";
-    case "confirmed":
-      return "Confirmed";
-    case "completed":
-      return "Completed";
-    case "cancelled":
-      return "Cancelled";
-    case "rejected":
-      return "Rejected";
-    default:
-      return status;
-  }
-}
-
-function cancellationReasonLabel(reason: string | null): string {
-  switch (reason) {
-    case "cancelled_by_client":
-      return "Cancelled by Client";
-    case "no_show":
-      return "No-show";
-    case "cancelled_by_nailtech":
-      return "Cancelled by Nailtech";
-    case "other":
-      return "Other";
-    default:
-      return reason || "—";
-  }
-}
-
-function paymentTypeLabel(type: string | null): string {
-  switch (type) {
-    case "down_payment":
-    case "booking_payment":
-      return "Down Payment";
-    case "balance":
-      return "Balance Payment";
-    case "tip":
-      return "Tip";
-    case "additional_charge":
-      return "Additional Charge";
-    case "other":
-      return "Other";
-    default:
-      return type || "Payment";
-  }
-}
-
-function paymentStatusLabel(
-  status: string | null,
-  verifiedAt: string | null
-): string {
-  if (status === "verified" || verifiedAt) {
-    return "Verified";
-  }
-
-  if (status === "rejected") {
-    return "Rejected";
-  }
-
-  if (status === "submitted") {
-    return "Submitted";
-  }
-
-  return status || "Pending";
-}
-
-function isVerifiedPayment(payment: {
-  status: string | null;
-  verified_at: string | null;
-}): boolean {
-  return payment.status === "verified" || Boolean(payment.verified_at);
-}
+import AdminBookingPaymentManager from "@/components/AdminBookingPaymentManager";
 
 type PageProps = {
   params: Promise<{
     id: string;
   }>;
+  searchParams: Promise<{
+    activityPage?: string;
+  }>;
 };
 
-export default async function BookingDetail({ params }: PageProps) {
-  const { id } = await params;
+type BookingService = {
+  id: string;
+  booking_id: string;
+  service_id: string;
+  variation_id: string | null;
+  service_name: string | null;
+  variation_name: string | null;
+  price: number | null;
+  duration_minutes: number | null;
+};
 
-  const db = supabaseAdmin();
+type BookingFile = {
+  id: string;
+  booking_id: string;
+  bucket: string | null;
+  path: string | null;
+  file_name: string | null;
+  kind: string | null;
+  created_at: string | null;
+  signedUrl: string | null;
+};
+
+type Payment = {
+  id: string;
+  method: string | null;
+  amount: number | null;
+  status: string | null;
+  verified_at: string | null;
+  created_at: string | null;
+  paid_at: string | null;
+  payment_type: string | null;
+  gross_amount: number | null;
+  processing_fee: number | null;
+  net_amount: number | null;
+  note: string | null;
+};
+
+type ActivityLog = {
+  id: string;
+  action: string | null;
+  description: string | null;
+  old_value: unknown;
+  new_value: unknown;
+  actor_id: string | null;
+  actor_email: string | null;
+  created_at: string;
+};
+
+const ACTIVITY_PAGE_SIZE = 10;
+
+function bookingFileName(
+  path: string | null
+): string {
+  if (!path) {
+    return "Uploaded file";
+  }
+
+  const lastPart =
+    path.split("/").pop() || path;
 
   /*
-   * BOOKING
+   * Uploaded file paths are stored as:
+   * <token>-<sanitized-original-filename>
+   *
+   * booking_files does not need a separate file_name
+   * column, so derive a readable name from the path.
    */
+  const withoutToken =
+    lastPart.replace(
+      /^[A-Za-z0-9]{8,}-/,
+      ""
+    );
 
-  const { data: booking, error } = await db
+  return withoutToken || lastPart;
+}
+
+function numberValue(
+  value: unknown
+): number {
+  const number =
+    Number(value);
+
+  return Number.isFinite(
+    number
+  )
+    ? number
+    : 0;
+}
+
+function peso(
+  value: unknown
+): string {
+  return `₱${numberValue(
+    value
+  ).toLocaleString(
+    "en-PH",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  )}`;
+}
+
+function formatDate(
+  value: string | null
+): string {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(
+      "en-PH",
+      {
+        dateStyle:
+          "medium",
+        timeZone:
+          "UTC",
+      }
+    ).format(
+      new Date(
+        `${value}T00:00:00Z`
+      )
+    );
+  } catch {
+    return value;
+  }
+}
+
+function formatTime(
+  value: string | null
+): string {
+  if (!value) {
+    return "—";
+  }
+
+  const [
+    hours,
+    minutes,
+  ] = value
+    .split(":")
+    .map(Number);
+
+  if (
+    !Number.isFinite(
+      hours
+    ) ||
+    !Number.isFinite(
+      minutes
+    )
+  ) {
+    return value;
+  }
+
+  const suffix =
+    hours >= 12
+      ? "PM"
+      : "AM";
+
+  const hour =
+    hours % 12 || 12;
+
+  return `${hour}:${String(
+    minutes
+  ).padStart(
+    2,
+    "0"
+  )} ${suffix}`;
+}
+
+function formatDateTime(
+  value: string | null
+): string {
+  if (!value) {
+    return "—";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(
+      "en-PH",
+      {
+        dateStyle:
+          "medium",
+        timeStyle:
+          "short",
+      }
+    ).format(
+      new Date(value)
+    );
+  } catch {
+    return value;
+  }
+}
+
+function prettyAction(
+  action: string | null
+): string {
+  if (!action) {
+    return "Activity";
+  }
+
+  return action
+    .replaceAll(
+      "_",
+      " "
+    )
+    .replace(
+      /\b\w/g,
+      (
+        letter
+      ) =>
+        letter.toUpperCase()
+    );
+}
+
+function activityFieldLabel(
+  key: string
+): string {
+  const labels: Record<
+    string,
+    string
+  > = {
+    status: "Status",
+    promo_name:
+      "Discount",
+    discount_verified:
+      "Discount Decision",
+    discount_amount:
+      "Discount Amount",
+    estimated_total:
+      "Estimated Total",
+    down_payment:
+      "Down Payment",
+    customer_name:
+      "Customer Name",
+    email: "Email",
+    mobile_number:
+      "Mobile Number",
+    social_handle:
+      "Social Handle",
+    preferred_date:
+      "Appointment Date",
+    preferred_time:
+      "Appointment Time",
+    removal:
+      "Removal",
+    notes: "Notes",
+    referral_name:
+      "Referred By",
+    discount_category:
+      "Discount Category",
+    payment_type:
+      "Payment Type",
+    method:
+      "Payment Method",
+    amount:
+      "Amount",
+  };
+
+  if (labels[key]) {
+    return labels[key];
+  }
+
+  return key
+    .replaceAll("_", " ")
+    .replace(
+      /\b\w/g,
+      (
+        letter
+      ) =>
+        letter.toUpperCase()
+    );
+}
+
+function activityFieldValue(
+  key: string,
+  value: unknown
+): string {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "—";
+  }
+
+  if (
+    key ===
+    "discount_verified"
+  ) {
+    return Boolean(value)
+      ? "Approved / Applied"
+      : "Rejected / Not Applied";
+  }
+
+  if (
+    key === "status"
+  ) {
+    return statusLabel(
+      value
+    );
+  }
+
+  if (
+    key ===
+      "preferred_date" &&
+    typeof value ===
+      "string"
+  ) {
+    return formatDate(
+      value
+    );
+  }
+
+  if (
+    key ===
+      "preferred_time" &&
+    typeof value ===
+      "string"
+  ) {
+    return formatTime(
+      value
+    );
+  }
+
+  if (
+    [
+      "discount_amount",
+      "estimated_total",
+      "down_payment",
+      "amount",
+      "price",
+      "gross_amount",
+      "processing_fee",
+      "net_amount",
+    ].includes(key)
+  ) {
+    return peso(
+      numberValue(
+        value
+      )
+    );
+  }
+
+  if (
+    typeof value ===
+    "boolean"
+  ) {
+    return value
+      ? "Yes"
+      : "No";
+  }
+
+  if (
+    Array.isArray(value)
+  ) {
+    if (
+      value.length === 0
+    ) {
+      return "None";
+    }
+
+    return `${value.length} item${
+      value.length === 1
+        ? ""
+        : "s"
+    } updated`;
+  }
+
+  if (
+    typeof value ===
+      "object" &&
+    value !== null
+  ) {
+    return "Updated";
+  }
+
+  return String(
+    value
+  );
+}
+
+function activityValueRows(
+  value: unknown
+): Array<{
+  label: string;
+  value: string;
+}> {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return [];
+  }
+
+  let normalized = value;
+
+  if (
+    typeof normalized ===
+    "string"
+  ) {
+    try {
+      normalized =
+        JSON.parse(
+          normalized
+        );
+    } catch {
+      return [
+        {
+          label: "Value",
+          value:
+            normalized,
+        },
+      ];
+    }
+  }
+
+  if (
+    typeof normalized ===
+      "object" &&
+    normalized !== null &&
+    !Array.isArray(
+      normalized
+    )
+  ) {
+    return Object.entries(
+      normalized as Record<
+        string,
+        unknown
+      >
+    ).map(
+      ([
+        key,
+        item,
+      ]) => ({
+        label:
+          activityFieldLabel(
+            key
+          ),
+        value:
+          activityFieldValue(
+            key,
+            item
+          ),
+      })
+    );
+  }
+
+  return [
+    {
+      label: "Value",
+      value:
+        activityFieldValue(
+          "",
+          normalized
+        ),
+    },
+  ];
+}
+
+function statusLabel(
+  status: unknown
+): string {
+  return String(
+    status || ""
+  )
+    .replaceAll(
+      "_",
+      " "
+    )
+    .replace(
+      /\b\w/g,
+      (
+        letter
+      ) =>
+        letter.toUpperCase()
+    );
+}
+
+function discountCategoryLabel(
+  value: unknown
+): string {
+  const category =
+    String(
+      value || ""
+    );
+
+  if (
+    category ===
+    "student"
+  ) {
+    return "Student";
+  }
+
+  if (
+    category ===
+    "pwd"
+  ) {
+    return "PWD";
+  }
+
+  if (
+    category ===
+    "senior_citizen"
+  ) {
+    return "Senior Citizen";
+  }
+
+  return "—";
+}
+
+function paymentTypeLabel(
+  value: string | null
+): string {
+  return String(
+    value || "other"
+  )
+    .replaceAll(
+      "_",
+      " "
+    )
+    .replace(
+      /\b\w/g,
+      (
+        letter
+      ) =>
+        letter.toUpperCase()
+    );
+}
+
+export default async function BookingDetailsPage({
+  params,
+  searchParams,
+}: PageProps) {
+  const { id } =
+    await params;
+
+  const activityParams =
+    await searchParams;
+
+  const activityPageRaw =
+    Number(
+      activityParams.activityPage ||
+        "1"
+    );
+
+  const activityPage =
+    Number.isFinite(
+      activityPageRaw
+    ) &&
+    activityPageRaw > 0
+      ? Math.floor(
+          activityPageRaw
+        )
+      : 1;
+
+  const activityFrom =
+    (activityPage - 1) *
+    ACTIVITY_PAGE_SIZE;
+
+  const activityTo =
+    activityFrom +
+    ACTIVITY_PAGE_SIZE -
+    1;
+
+  const activityPaginationRequested =
+    Boolean(
+      activityParams.activityPage
+    );
+
+  const db =
+    supabaseAdmin();
+
+  const {
+    data: booking,
+    error:
+      bookingError,
+  } = await db
     .from("bookings")
-    .select("*, booking_services(*)")
+    .select(
+      `
+        *,
+        booking_services(
+          id,
+          booking_id,
+          service_id,
+          variation_id,
+          service_name,
+          variation_name,
+          price,
+          duration_minutes
+        )
+      `
+    )
     .eq("id", id)
-    .single();
+    .maybeSingle();
 
-  if (error || !booking) {
+  if (bookingError) {
+    console.error(
+      "Booking details error:",
+      bookingError
+    );
+  }
+
+  if (
+    !booking ||
+    booking.status ===
+      "draft"
+  ) {
     notFound();
   }
 
+  const services =
+    (
+      booking.booking_services ||
+      []
+    ) as BookingService[];
+
+  const [
+    filesResult,
+    paymentsResult,
+    activityResult,
+    paymentProofsResult,
+  ] =
+    await Promise.all([
+      db
+        .from(
+          "booking_files"
+        )
+        .select(
+          `
+            id,
+            booking_id,
+            bucket,
+            path,
+            kind,
+            created_at
+          `
+        )
+        .eq(
+          "booking_id",
+          id
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        ),
+
+      db
+        .from("payments")
+        .select(
+          `
+            id,
+            method,
+            amount,
+            status,
+            verified_at,
+            created_at,
+            paid_at,
+            payment_type,
+            gross_amount,
+            processing_fee,
+            net_amount,
+            note
+          `
+        )
+        .eq(
+          "booking_id",
+          id
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        ),
+
+      db
+        .from(
+          "booking_activity_logs"
+        )
+        .select(
+          `
+            id,
+            action,
+            description,
+            old_value,
+            new_value,
+            actor_id,
+            actor_email,
+            created_at
+          `,
+          {
+            count: "exact",
+          }
+        )
+        .eq(
+          "booking_id",
+          id
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        )
+        .range(
+          activityFrom,
+          activityTo
+        ),
+
+      db
+        .from(
+          "payment_proofs"
+        )
+        .select(
+          `
+            id,
+            booking_id,
+            bucket,
+            path,
+            created_at
+          `
+        )
+        .eq(
+          "booking_id",
+          id
+        )
+        .order(
+          "created_at",
+          {
+            ascending:
+              false,
+          }
+        ),
+    ]);
+
   /*
-   * CUSTOMER UPLOADS
+   * booking_files is optional for bookings without uploads.
+   * If loading files fails, keep the details page usable and
+   * render the file sections as empty instead of triggering
+   * the Next.js development error overlay.
    */
+  if (
+    paymentsResult.error
+  ) {
+    console.error(
+      "Payments error:",
+      paymentsResult.error
+    );
+  }
 
-  const { data: files } = await db
-    .from("booking_files")
-    .select("id, booking_id, bucket, path, kind, created_at")
-    .eq("booking_id", id)
-    .order("created_at", {
-      ascending: true,
-    });
+  if (
+    activityResult.error
+  ) {
+    console.error(
+      "Activity log error:",
+      activityResult.error
+    );
+  }
 
-  const signedFiles = await Promise.all(
-    (files || []).map(async (file) => {
-      const { data } = await db.storage
-        .from(file.bucket)
-        .createSignedUrl(file.path, 60 * 60 * 6);
+  if (
+    paymentProofsResult.error
+  ) {
+    console.error(
+      "Payment proofs error:",
+      paymentProofsResult.error
+    );
+  }
 
-      return {
-        ...file,
-        signedUrl: data?.signedUrl || null,
-      };
-    })
-  );
+  const rawFiles =
+    filesResult.error
+      ? []
+      : filesResult.data ||
+        [];
 
-  /*
-   * PAYMENT PROOFS
-   */
+  const signedFiles =
+    (await Promise.all(
+      rawFiles.map(
+        async (
+          file
+        ) => {
+          if (
+            !file.bucket ||
+            !file.path
+          ) {
+            return {
+              ...file,
+              file_name:
+                bookingFileName(
+                  file.path
+                ),
+              signedUrl:
+                null,
+            };
+          }
 
-  const { data: paymentProofRows } = await db
-    .from("payment_proofs")
-    .select("id, booking_id, bucket, path, created_at")
-    .eq("booking_id", id)
-    .order("created_at", {
-      ascending: false,
-    });
+          const {
+            data,
+          } =
+            await db.storage
+              .from(
+                file.bucket
+              )
+              .createSignedUrl(
+                file.path,
+                60 * 60
+              );
 
-  const paymentProofs = await Promise.all(
-    (paymentProofRows || []).map(async (file) => {
-      const { data } = await db.storage
-        .from(file.bucket)
-        .createSignedUrl(file.path, 60 * 60 * 6);
+          return {
+            ...file,
+            file_name:
+              bookingFileName(
+                file.path
+              ),
+            signedUrl:
+              data?.signedUrl ||
+              null,
+          };
+        }
+      )
+    )) as BookingFile[];
 
-      return {
-        ...file,
-        signedUrl: data?.signedUrl || null,
-      };
-    })
-  );
+  const payments =
+    (
+      paymentsResult.data ||
+      []
+    ) as Payment[];
 
-  /*
-   * PAYMENTS
-   */
+  const activities =
+    (
+      activityResult.data ||
+      []
+    ) as ActivityLog[];
 
-  const { data: payments } = await db
-    .from("payments")
-    .select(`
-      id,
-      method,
-      amount,
-      status,
-      verified_at,
-      created_at,
-      paid_at,
-      payment_type,
-      gross_amount,
-      processing_fee,
-      net_amount,
-      note
-    `)
-    .eq("booking_id", id)
-    .order("created_at", {
-      ascending: false,
-    });
+  const activityTotal =
+    activityResult.count ||
+    0;
 
-  /*
-   * DISCOUNT
-   */
+  const activityTotalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        activityTotal /
+          ACTIVITY_PAGE_SIZE
+      )
+    );
 
-  const discountName = booking.promo_name || "";
-  const discountSelected = Boolean(discountName);
-  const discountVerified = Boolean(booking.discount_verified);
+  const activityPageNumbers =
+    Array.from(
+      {
+        length:
+          activityTotalPages,
+      },
+      (_, index) =>
+        index + 1
+    );
 
-  /*
-   * ORIGINAL TOTAL
-   */
+  const paymentProofs =
+    paymentProofsResult.data ||
+    [];
 
-  const baseTotal = Number(booking.estimated_total || 0);
+  const signedPaymentProofs =
+    await Promise.all(
+      paymentProofs.map(
+        async (
+          proof
+        ) => {
+          if (
+            !proof.bucket ||
+            !proof.path
+          ) {
+            return {
+              ...proof,
+              signedUrl:
+                null,
+            };
+          }
 
-  /*
-   * CURRENT DISCOUNT
-   */
+          const {
+            data,
+          } =
+            await db.storage
+              .from(
+                proof.bucket
+              )
+              .createSignedUrl(
+                proof.path,
+                60 * 60
+              );
 
-  const discountAmount =
-    discountSelected && discountVerified
-      ? Number((baseTotal * 0.05).toFixed(2))
+          return {
+            ...proof,
+            signedUrl:
+              data?.signedUrl ||
+              null,
+          };
+        }
+      )
+    );
+
+  const inspirationFiles =
+    signedFiles.filter(
+      (file) =>
+        file.kind ===
+        "inspiration"
+    );
+
+  const studentValidId =
+    signedFiles.find(
+      (file) =>
+        file.kind ===
+        "student_valid_id"
+    );
+
+  const studentRegistration =
+    signedFiles.find(
+      (file) =>
+        file.kind ===
+        "student_registration"
+    );
+
+  const originalTotal =
+    numberValue(
+      booking.estimated_total
+    ) ||
+    services.reduce(
+      (
+        total,
+        service
+      ) =>
+        total +
+        numberValue(
+          service.price
+        ),
+      0
+    );
+
+  const requestedDiscount =
+    numberValue(
+      booking.discount_amount
+    );
+
+  const discountVerified =
+    Boolean(
+      booking.discount_verified
+    );
+
+  const appliedDiscount =
+    discountVerified
+      ? requestedDiscount
       : 0;
 
-  /*
-   * FINAL TOTAL
-   *
-   * If the discount is not verified, including a rejected
-   * discount, the booking stays at the original amount.
-   */
-
-  const finalTotal = Math.max(0, baseTotal - discountAmount);
-
-  /*
-   * PAYMENT TOTALS
-   */
-
-  const paymentRows = payments || [];
-
-  const verifiedPayments = paymentRows.filter(isVerifiedPayment);
-
-  /*
-   * VERIFIED DOWN PAYMENT
-   */
-
-  const verifiedDownPayment = verifiedPayments
-    .filter(
-      (payment) =>
-        payment.payment_type === "down_payment" ||
-        payment.payment_type === "booking_payment"
-    )
-    .reduce(
-      (sum, payment) => sum + Number(payment.amount || 0),
-      0
+  const finalTotal =
+    Math.max(
+      0,
+      originalTotal -
+        appliedDiscount
     );
 
-  /*
-   * VERIFIED BALANCE PAYMENTS
-   */
-
-  const verifiedBalancePaid = verifiedPayments
-    .filter((payment) => payment.payment_type === "balance")
-    .reduce(
-      (sum, payment) => sum + Number(payment.amount || 0),
-      0
+  const verifiedPayments =
+    payments.filter(
+      (
+        payment
+      ) =>
+        payment.status ===
+          "verified" ||
+        Boolean(
+          payment.verified_at
+        )
     );
 
-  /*
-   * VERIFIED TIPS
-   */
+  const paidTowardBooking =
+    verifiedPayments
+      .filter(
+        (
+          payment
+        ) =>
+          [
+            "down_payment",
+            "booking_payment",
+            "balance",
+          ].includes(
+            String(
+              payment.payment_type ||
+                ""
+            )
+          )
+      )
+      .reduce(
+        (
+          total,
+          payment
+        ) =>
+          total +
+          numberValue(
+            payment.net_amount ??
+              payment.amount
+          ),
+        0
+      );
 
-  const verifiedTips = verifiedPayments
-    .filter((payment) => payment.payment_type === "tip")
-    .reduce(
-      (sum, payment) => sum + Number(payment.amount || 0),
-      0
+  const tips =
+    verifiedPayments
+      .filter(
+        (
+          payment
+        ) =>
+          payment.payment_type ===
+          "tip"
+      )
+      .reduce(
+        (
+          total,
+          payment
+        ) =>
+          total +
+          numberValue(
+            payment.net_amount ??
+              payment.amount
+          ),
+        0
+      );
+
+  const additionalCharges =
+    verifiedPayments
+      .filter(
+        (
+          payment
+        ) =>
+          payment.payment_type ===
+          "additional_charge"
+      )
+      .reduce(
+        (
+          total,
+          payment
+        ) =>
+          total +
+          numberValue(
+            payment.net_amount ??
+              payment.amount
+          ),
+        0
+      );
+
+  const otherPayments =
+    verifiedPayments
+      .filter(
+        (
+          payment
+        ) =>
+          payment.payment_type ===
+          "other"
+      )
+      .reduce(
+        (
+          total,
+          payment
+        ) =>
+          total +
+          numberValue(
+            payment.net_amount ??
+              payment.amount
+          ),
+        0
+      );
+
+  const balanceRemaining =
+    Math.max(
+      0,
+      finalTotal -
+        paidTowardBooking
     );
 
-  /*
-   * VERIFIED ADDITIONAL CHARGES
-   */
+  const accessToken =
+    booking.access_token ||
+    null;
 
-  const verifiedAdditionalCharges = verifiedPayments
-    .filter(
-      (payment) =>
-        payment.payment_type === "additional_charge"
-    )
-    .reduce(
-      (sum, payment) => sum + Number(payment.amount || 0),
-      0
+  const confirmationHref =
+    accessToken
+      ? `/confirmed/${accessToken}`
+      : null;
+
+  const bookingStatus =
+    String(
+      booking.status || ""
     );
 
-  /*
-   * VERIFIED OTHER PAYMENTS
-   */
-
-  const verifiedOther = verifiedPayments
-    .filter((payment) => payment.payment_type === "other")
-    .reduce(
-      (sum, payment) => sum + Number(payment.amount || 0),
-      0
+  const promoName =
+    String(
+      booking.promo_name ||
+        "Not Applicable"
     );
 
-  /*
-   * REMAINING BOOKING BALANCE
-   */
+  const hasDiscount =
+    promoName !==
+      "Not Applicable" &&
+    promoName !==
+      "None" &&
+    promoName.trim() !==
+      "";
 
-  const remaining = Math.max(
-    0,
-    finalTotal -
-      verifiedDownPayment -
-      verifiedBalancePaid
-  );
+  const isStudentDiscount =
+    promoName.startsWith(
+      "Student / PWD / SC Discount"
+    );
 
-  /*
-   * PAYMENT ACCOUNTING
-   */
-
-  const verifiedGrossPayments = verifiedPayments.reduce(
-    (sum, payment) =>
-      sum +
-      Number(
-        payment.gross_amount ??
-          payment.amount ??
-          0
-      ),
-    0
-  );
-
-  const verifiedProcessingFees = verifiedPayments.reduce(
-    (sum, payment) =>
-      sum +
-      Number(payment.processing_fee || 0),
-    0
-  );
-
-  const verifiedNetPayments = verifiedPayments.reduce(
-    (sum, payment) =>
-      sum +
-      Number(
-        payment.net_amount ??
-          payment.amount ??
-          0
-      ),
-    0
-  );
-
-  /*
-   * FILE GROUPS
-   */
-
-  const inspiration = signedFiles.filter(
-    (file) => file.kind === "inspiration"
-  );
-
-  const verification = signedFiles.filter((file) =>
-    [
-      "student_valid_id",
-      "student_registration",
-      "pwd_valid_id",
-      "pwd_document",
-      "senior_valid_id",
-      "senior_document",
-    ].includes(file.kind)
-  );
+  const isReferral =
+    promoName.startsWith(
+      "Referral Program"
+    );
 
   return (
-    <div className="admin-page booking-detail-page">
-      {/* HEADER */}
+    <main className="bd-page">
+      <header className="bd-header">
+        <div className="bd-header-copy">
+          <div className="bd-kicker">
+            Booking
+          </div>
 
-      <header className="booking-detail-header">
-        <div>
-          <div className="kicker">{booking.reference_code}</div>
+          <h1>
+            Booking Details
+          </h1>
 
-          <h1 className="serif">Booking Details</h1>
-
-          <p className="muted">
-            Review the customer request, appointment,
-            uploads, discount, and payment status.
+          <p className="bd-reference">
+            {booking.reference_code ||
+              "Booking"}
           </p>
         </div>
 
-        <div className="booking-detail-header-actions">
-          <Link
-            href="/admin/bookings"
-            className="btn secondary"
-          >
-            ← All bookings
-          </Link>
-        </div>
+        <Link
+          href="/admin/bookings"
+          className="bd-back-button"
+        >
+          ← Back to Bookings
+        </Link>
       </header>
 
-      {/* CUSTOMER SUMMARY */}
+      <div className="bd-flow">
+        {/* 1. CUSTOMER SUMMARY */}
 
-      <section className="booking-summary-card">
-        <div className="booking-summary-main">
-          <div className="booking-avatar">
-            {String(booking.customer_name || "?")
-              .charAt(0)
-              .toUpperCase()}
-          </div>
+        <section className="bd-card">
+          <div className="bd-heading">
+            <div>
+              <h2>
+                Customer
+                Summary
+              </h2>
 
-          <div>
-            <div className="kicker">Customer</div>
-
-            <h2 className="serif">
-              {booking.customer_name}
-            </h2>
-
-            <div className="booking-contact">
-              {booking.mobile_number ||
-                "No phone number"}
-            </div>
-
-            <div className="muted">
-              {booking.social_handle ||
-                "No social handle"}
+              <p>
+                Client
+                information for
+                this booking.
+              </p>
             </div>
           </div>
-        </div>
 
-        <span className="status-pill">
-          {statusLabel(booking.status)}
-        </span>
-      </section>
+          <div className="bd-grid bd-grid-4">
+            <div className="bd-field">
+              <span>
+                Customer
+              </span>
 
-      <div className="booking-detail-layout">
-        {/* MAIN */}
-
-        <main className="booking-detail-content">
-          {/* APPOINTMENT */}
-
-          <section className="admin-detail-card">
-            <div className="section-label">
-              Appointment
+              <strong>
+                {booking.customer_name ||
+                  "—"}
+              </strong>
             </div>
 
-            <div className="appointment-highlight">
-              <div>
-                <span className="muted">Date</span>
+            <div className="bd-field">
+              <span>
+                Email
+              </span>
 
-                <strong>
-                  {formatDate(booking.preferred_date)}
-                </strong>
-              </div>
-
-              <div>
-                <span className="muted">Time</span>
-
-                <strong>
-                  {formatTime12(
-                    booking.preferred_time
-                  )}
-                </strong>
-              </div>
+              <strong>
+                {booking.email ||
+                  "—"}
+              </strong>
             </div>
 
-            <div className="service-table">
-              {booking.booking_services?.map(
-                (item: {
-                  id: string;
-                  service_name: string;
-                  variation_name?: string | null;
-                  price: number | null;
-                  duration_minutes: number | null;
-                }) => (
+            <div className="bd-field">
+              <span>
+                Mobile
+              </span>
+
+              <strong>
+                {booking.mobile_number ||
+                  booking.mobile ||
+                  booking.phone ||
+                  "—"}
+              </strong>
+            </div>
+
+            <div className="bd-field">
+              <span>
+                Status
+              </span>
+
+              <strong className="bd-status">
+                {statusLabel(
+                  booking.status
+                )}
+              </strong>
+            </div>
+
+            {booking.social_handle && (
+              <div className="bd-field">
+                <span>
+                  IG /
+                  Messenger
+                </span>
+
+                <strong>
+                  {
+                    booking.social_handle
+                  }
+                </strong>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* 2. APPOINTMENT DETAILS */}
+
+        <section className="bd-card">
+          <div className="bd-heading">
+            <div>
+              <h2>
+                Appointment
+                Details
+              </h2>
+
+              <p>
+                Date, time,
+                services and
+                booking-form
+                details.
+              </p>
+            </div>
+          </div>
+
+          <div className="bd-grid bd-grid-2">
+            <div className="bd-info-box">
+              <span>
+                Date
+              </span>
+
+              <strong>
+                {formatDate(
+                  booking.preferred_date ||
+                    booking.booking_date ||
+                    null
+                )}
+              </strong>
+            </div>
+
+            <div className="bd-info-box">
+              <span>
+                Time
+              </span>
+
+              <strong>
+                {formatTime(
+                  booking.preferred_time ||
+                    booking.booking_time ||
+                    null
+                )}
+              </strong>
+            </div>
+          </div>
+
+          <div className="bd-services">
+            <h3>
+              Services
+            </h3>
+
+            {services.length ===
+            0 ? (
+              <div className="bd-empty">
+                No services
+                found.
+              </div>
+            ) : (
+              services.map(
+                (
+                  service
+                ) => (
                   <div
-                    className="service-row"
-                    key={item.id}
+                    key={
+                      service.id
+                    }
+                    className="bd-service-row"
                   >
-                    <div>
+                    <div className="bd-service-details">
                       <strong>
-                        {item.service_name}
+                        {service.service_name ||
+                          "Service"}
                       </strong>
 
-                      {item.variation_name && (
-                        <span className="muted">
-                          {item.variation_name}
+                      {service.variation_name && (
+                        <span>
+                          {
+                            service.variation_name
+                          }
                         </span>
+                      )}
+
+                      {numberValue(
+                        service.duration_minutes
+                      ) >
+                        0 && (
+                        <small>
+                          {
+                            service.duration_minutes
+                          }{" "}
+                          min
+                        </small>
                       )}
                     </div>
 
-                    <div className="service-row-right">
+                    <strong className="bd-price">
+                      {peso(
+                        service.price
+                      )}
+                    </strong>
+                  </div>
+                )
+              )
+            )}
+          </div>
+
+          <div className="bd-booking-form-details">
+            <div className="bd-field">
+              <span>
+                Removal
+              </span>
+
+              <strong>
+                {booking.removal ||
+                  "None"}
+              </strong>
+            </div>
+
+            <div className="bd-field">
+              <span>
+                Selected
+                Promo /
+                Discount
+              </span>
+
+              <strong>
+                {promoName}
+              </strong>
+            </div>
+
+            {isReferral &&
+              booking.referral_name && (
+                <div className="bd-field">
+                  <span>
+                    Referred By
+                  </span>
+
+                  <strong>
+                    {
+                      booking.referral_name
+                    }
+                  </strong>
+                </div>
+              )}
+
+            {booking.notes && (
+              <div className="bd-field bd-full">
+                <span>
+                  Customer
+                  Notes
+                </span>
+
+                <p className="bd-note">
+                  {
+                    booking.notes
+                  }
+                </p>
+              </div>
+            )}
+
+            {booking.status ===
+              "cancelled" && (
+              <>
+                <div className="bd-field">
+                  <span>
+                    Cancellation
+                    Reason
+                  </span>
+
+                  <strong>
+                    {booking.cancellation_reason ||
+                      "—"}
+                  </strong>
+                </div>
+
+                <div className="bd-field">
+                  <span>
+                    Cancelled At
+                  </span>
+
+                  <strong>
+                    {formatDateTime(
+                      booking.cancelled_at ||
+                        null
+                    )}
+                  </strong>
+                </div>
+
+                {booking.cancellation_note && (
+                  <div className="bd-field bd-full">
+                    <span>
+                      Cancellation
+                      Note
+                    </span>
+
+                    <p className="bd-note">
+                      {
+                        booking.cancellation_note
+                      }
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="bd-totals">
+            <div>
+              <span>
+                Subtotal
+              </span>
+
+              <strong>
+                {peso(
+                  originalTotal
+                )}
+              </strong>
+            </div>
+
+            {requestedDiscount >
+              0 && (
+              <div className="bd-discount">
+                <span>
+                  Requested
+                  Discount
+                </span>
+
+                <strong>
+                  −
+                  {peso(
+                    requestedDiscount
+                  )}
+                </strong>
+              </div>
+            )}
+
+            {requestedDiscount >
+              0 &&
+              !discountVerified && (
+                <div>
+                  <span>
+                    Discount
+                    Applied
+                  </span>
+
+                  <strong>
+                    ₱0.00
+                  </strong>
+                </div>
+              )}
+
+            <div className="bd-grand-total">
+              <span>
+                Booking Total
+              </span>
+
+              <strong>
+                {peso(
+                  finalTotal
+                )}
+              </strong>
+            </div>
+          </div>
+        </section>
+
+        {/* 3. NAIL INSPIRATION */}
+
+        {inspirationFiles.length >
+          0 && (
+          <section className="bd-card">
+            <div className="bd-heading">
+              <div>
+                <h2>
+                  Nail
+                  Inspiration
+                </h2>
+
+                <p>
+                  Inspiration
+                  uploaded with
+                  the booking
+                  form.
+                </p>
+              </div>
+            </div>
+
+            <div className="bd-files">
+              {inspirationFiles.map(
+                (
+                  file
+                ) => (
+                  <div
+                    key={
+                      file.id
+                    }
+                    className="bd-file-row"
+                  >
+                    <div>
                       <strong>
-                        {peso(item.price || 0)}
+                        {file.file_name ||
+                          "Nail inspiration"}
                       </strong>
 
-                      <span className="muted">
-                        {item.duration_minutes || 0} min
+                      <span>
+                        {formatDateTime(
+                          file.created_at
+                        )}
                       </span>
                     </div>
+
+                    {file.signedUrl && (
+                      <a
+                        href={
+                          file.signedUrl
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        className="bd-small-button"
+                      >
+                        View
+                      </a>
+                    )}
                   </div>
                 )
               )}
             </div>
           </section>
+        )}
 
-          {/* REQUEST DETAILS */}
+        {/* 4. DISCOUNT VERIFICATION */}
 
-          <section className="admin-detail-card">
-            <div className="section-label">
-              Request details
-            </div>
-
-            <div className="detail-table">
+        {hasDiscount && (
+          <section className="bd-card">
+            <div className="bd-heading">
               <div>
-                <span>Removal</span>
+                <h2>
+                  Discount
+                  Verification
+                </h2>
 
-                <strong>
-                  {booking.removal || "None"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Promo / Discount</span>
-
-                <strong>
-                  {booking.promo_name ||
-                    "Not applicable"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Referral</span>
-
-                <strong>
-                  {booking.referral_name || "—"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Notes</span>
-
-                <strong className="detail-wrap">
-                  {booking.notes || "—"}
-                </strong>
-              </div>
-
-              <div>
-                <span>Policies accepted</span>
-
-                <strong>
-                  {booking.terms_accepted
-                    ? "Yes"
-                    : "No"}
-                </strong>
-              </div>
-            </div>
-          </section>
-
-          {/* DISCOUNT VERIFICATION */}
-
-          <section className="admin-detail-card">
-            <div className="section-label">
-              Discount verification
-            </div>
-
-            {discountSelected ? (
-              <div
-                style={{
-                  display: "grid",
-                  gap: 14,
-                }}
-              >
-                <div className="detail-table">
-                  <div>
-                    <span>
-                      Requested discount
-                    </span>
-
-                    <strong>
-                      {discountName}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Discount rate</span>
-
-                    <strong>5%</strong>
-                  </div>
-
-                  <div>
-                    <span>
-                      Verification status
-                    </span>
-
-                    <strong>
-                      {discountVerified
-                        ? "Verified · Applied"
-                        : "Pending verification"}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>
-                      Discount amount
-                    </span>
-
-                    <strong>
-                      {discountVerified
-                        ? `−${peso(discountAmount)}`
-                        : peso(0)}
-                    </strong>
-                  </div>
-
-                  <div>
-                    <span>Booking total</span>
-
-                    <strong>
-                      {peso(finalTotal)}
-                    </strong>
-                  </div>
-                </div>
-
-                {!discountVerified && (
-                  <div
-                    className="notice"
-                    style={{
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    The customer selected this
-                    discount, but it has{" "}
-                    <strong>not been applied</strong>.
-                    Verify the customer's eligibility
-                    before applying the 5% discount.
-                  </div>
-                )}
-
-                {discountVerified && (
-                  <div
-                    className="notice"
-                    style={{
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    Discount verified and applied
-                    to the booking total.
-                  </div>
-                )}
-
-                {!discountVerified && (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "1fr 1fr",
-                      gap: 8,
-                    }}
-                  >
-                    <form
-                      action="/api/admin/bookings"
-                      method="POST"
-                    >
-                      <input
-                        type="hidden"
-                        name="action"
-                        value="verify_discount"
-                      />
-
-                      <input
-                        type="hidden"
-                        name="id"
-                        value={booking.id}
-                      />
-
-                      <button
-                        type="submit"
-                        className="btn"
-                        style={{
-                          width: "100%",
-                        }}
-                      >
-                        Verify & Apply 5%
-                      </button>
-                    </form>
-
-                    <form
-                      action="/api/admin/bookings"
-                      method="POST"
-                    >
-                      <input
-                        type="hidden"
-                        name="action"
-                        value="reject_discount"
-                      />
-
-                      <input
-                        type="hidden"
-                        name="id"
-                        value={booking.id}
-                      />
-
-                      <button
-                        type="submit"
-                        className="btn secondary"
-                        style={{
-                          width: "100%",
-                        }}
-                      >
-                        Reject
-                      </button>
-                    </form>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="empty-box">
-                No discount was selected.
-              </div>
-            )}
-          </section>
-
-          {/* NAIL INSPIRATION */}
-
-          <section className="admin-detail-card">
-            <div className="section-label">
-              Nail inspiration
-            </div>
-
-            <p className="muted section-description">
-              Design references uploaded by the
-              customer.
-            </p>
-
-            {inspiration.length > 0 ? (
-              <div className="booking-media-grid">
-                {inspiration.map((file) => (
-                  <div
-                    key={file.id}
-                    className="booking-media-card"
-                  >
-                    {file.signedUrl &&
-                    isImage(file.path) ? (
-                      <a
-                        href={file.signedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="booking-image-frame"
-                      >
-                        <img
-                          src={file.signedUrl}
-                          alt="Customer nail inspiration"
-                        />
-                      </a>
-                    ) : (
-                      <a
-                        href={
-                          file.signedUrl || "#"
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="file-placeholder"
-                      >
-                        Open file →
-                      </a>
-                    )}
-
-                    <div className="file-name">
-                      {file.path
-                        .split("/")
-                        .pop() ||
-                        "Uploaded file"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-box">
-                No nail inspiration uploaded.
-              </div>
-            )}
-          </section>
-
-          {/* DISCOUNT DOCUMENTS */}
-
-          <section className="admin-detail-card">
-            <div className="section-label">
-              Discount verification documents
-            </div>
-
-            <p className="muted section-description">
-              Private documents submitted for
-              Student, PWD, or Senior Citizen
-              verification.
-            </p>
-
-            {verification.length > 0 ? (
-              <div className="verification-media-grid">
-                {verification.map((file) => (
-                  <div
-                    key={file.id}
-                    className="verification-media-card"
-                  >
-                    <div className="verification-media-header">
-                      <div>
-                        <strong>
-                          {file.kind ===
-                          "student_valid_id"
-                            ? "Student Valid ID"
-                            : file.kind ===
-                              "student_registration"
-                            ? "Student Registration"
-                            : file.kind ===
-                              "pwd_valid_id"
-                            ? "PWD Valid ID"
-                            : file.kind ===
-                              "senior_valid_id"
-                            ? "Senior Citizen Valid ID"
-                            : "Verification Document"}
-                        </strong>
-
-                        <span className="muted">
-                          {file.path
-                            .split("/")
-                            .pop() ||
-                            "Uploaded file"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {file.signedUrl &&
-                    isImage(file.path) ? (
-                      <div className="verification-image-frame">
-                        <img
-                          src={file.signedUrl}
-                          alt="Discount verification document"
-                        />
-                      </div>
-                    ) : (
-                      <div className="verification-file-placeholder">
-                        <span>
-                          Document uploaded
-                        </span>
-
-                        {file.signedUrl && (
-                          <a
-                            href={file.signedUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn small secondary"
-                          >
-                            Open document
-                          </a>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-box">
-                No discount verification documents.
-              </div>
-            )}
-          </section>
-
-          {/* PAYMENT PROOF */}
-
-          <section className="admin-detail-card payment-proof-section">
-            <div className="section-label">
-              Payment proof
-            </div>
-
-            <p className="muted section-description">
-              Private payment screenshots submitted
-              by the customer.
-            </p>
-
-            {paymentProofs.length > 0 ? (
-              <div className="booking-media-grid payment-proof-grid">
-                {paymentProofs.map((file) => (
-                  <div
-                    key={file.id}
-                    className="booking-media-card payment-proof-card"
-                  >
-                    {file.signedUrl &&
-                    isImage(file.path) ? (
-                      <a
-                        href={file.signedUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="booking-image-frame payment-image-frame"
-                      >
-                        <img
-                          src={file.signedUrl}
-                          alt="Customer payment proof"
-                        />
-                      </a>
-                    ) : (
-                      <a
-                        href={
-                          file.signedUrl || "#"
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="file-placeholder"
-                      >
-                        Open payment proof →
-                      </a>
-                    )}
-
-                    <div className="file-name">
-                      Payment proof
-                    </div>
-
-                    <span className="muted">
-                      {file.path
-                        .split("/")
-                        .pop() ||
-                        "Uploaded proof"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-box">
-                No payment proof uploaded yet.
-              </div>
-            )}
-
-            <div
-              style={{
-                marginTop: 14,
-              }}
-            >
-              <Link
-                href="/admin/payments"
-                className="btn secondary"
-                style={{
-                  width: "100%",
-                  textAlign: "center",
-                }}
-              >
-                View Payment Transactions &
-                Verification →
-              </Link>
-            </div>
-          </section>
-
-          {/* CANCELLATION */}
-
-          {booking.status === "cancelled" && (
-            <section className="admin-detail-card">
-              <div className="section-label">
-                Cancellation
-              </div>
-
-              <div className="detail-table">
-                <div>
-                  <span>Reason</span>
-
-                  <strong>
-                    {cancellationReasonLabel(
-                      booking.cancellation_reason
-                    )}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Details</span>
-
-                  <strong className="detail-wrap">
-                    {booking.cancellation_note ||
-                      "—"}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>Cancelled at</span>
-
-                  <strong>
-                    {booking.cancelled_at
-                      ? new Date(
-                          booking.cancelled_at
-                        ).toLocaleString(
-                          "en-PH",
-                          {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          }
-                        )
-                      : "—"}
-                  </strong>
-                </div>
-              </div>
-            </section>
-          )}
-
-          {/* PAYMENT HISTORY — ALWAYS LAST */}
-
-          <section className="admin-detail-card">
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-start",
-                justifyContent: "space-between",
-                gap: 16,
-                flexWrap: "wrap",
-              }}
-            >
-              <div>
-                <div className="section-label">
-                  Payment history
-                </div>
-
-                <p
-                  className="muted section-description"
-                  style={{
-                    marginBottom: 0,
-                  }}
-                >
-                  All payment activity for this
-                  booking.
+                <p>
+                  Review the
+                  discount or
+                  promo selected
+                  by the client.
                 </p>
               </div>
 
-              {paymentRows.length > 0 && (
-                <div
-                  className="status-pill"
-                  style={{
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {paymentRows.length} transaction
-                  {paymentRows.length === 1
-                    ? ""
-                    : "s"}
-                </div>
-              )}
+              <span
+                className={`bd-badge ${
+                  discountVerified
+                    ? "approved"
+                    : "pending"
+                }`}
+              >
+                {discountVerified
+                  ? "Approved / Applied"
+                  : "Not Approved"}
+              </span>
             </div>
 
-            {/* PAYMENT SUMMARY */}
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(150px, 1fr))",
-                gap: 10,
-                marginTop: 18,
-              }}
-            >
-              <div
-                style={{
-                  padding: 14,
-                  border:
-                    "1px solid var(--border, #e7e1dc)",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="muted">
-                  Booking Total
+            <div className="bd-grid bd-grid-3">
+              <div className="bd-field">
+                <span>
+                  Selected
+                  Discount
                 </span>
 
-                <strong
-                  style={{
-                    display: "block",
-                    marginTop: 5,
-                  }}
-                >
-                  {peso(finalTotal)}
+                <strong>
+                  {promoName}
                 </strong>
               </div>
 
-              <div
-                style={{
-                  padding: 14,
-                  border:
-                    "1px solid var(--border, #e7e1dc)",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="muted">
-                  Down Payment
+              <div className="bd-field">
+                <span>
+                  Requested
+                  Amount
                 </span>
 
-                <strong
-                  style={{
-                    display: "block",
-                    marginTop: 5,
-                  }}
-                >
-                  {peso(verifiedDownPayment)}
-                </strong>
-              </div>
-
-              <div
-                style={{
-                  padding: 14,
-                  border:
-                    "1px solid var(--border, #e7e1dc)",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="muted">
-                  Balance Paid
-                </span>
-
-                <strong
-                  style={{
-                    display: "block",
-                    marginTop: 5,
-                  }}
-                >
-                  {peso(verifiedBalancePaid)}
-                </strong>
-              </div>
-
-              <div
-                style={{
-                  padding: 14,
-                  border:
-                    "1px solid var(--border, #e7e1dc)",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="muted">
-                  Remaining
-                </span>
-
-                <strong
-                  style={{
-                    display: "block",
-                    marginTop: 5,
-                  }}
-                >
-                  {peso(remaining)}
-                </strong>
-              </div>
-
-              <div
-                style={{
-                  padding: 14,
-                  border:
-                    "1px solid var(--border, #e7e1dc)",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="muted">Tips</span>
-
-                <strong
-                  style={{
-                    display: "block",
-                    marginTop: 5,
-                  }}
-                >
-                  {peso(verifiedTips)}
-                </strong>
-              </div>
-
-              <div
-                style={{
-                  padding: 14,
-                  border:
-                    "1px solid var(--border, #e7e1dc)",
-                  borderRadius: 12,
-                }}
-              >
-                <span className="muted">
-                  Additional Charges
-                </span>
-
-                <strong
-                  style={{
-                    display: "block",
-                    marginTop: 5,
-                  }}
-                >
+                <strong>
                   {peso(
-                    verifiedAdditionalCharges
+                    requestedDiscount
                   )}
                 </strong>
               </div>
-            </div>
 
-            {/* ACCOUNTING SUMMARY */}
+              <div className="bd-field">
+                <span>
+                  Applied
+                  Amount
+                </span>
 
-            {verifiedPayments.length > 0 && (
-              <div
-                style={{
-                  marginTop: 14,
-                  padding: 14,
-                  borderRadius: 12,
-                  background:
-                    "rgba(0,0,0,0.025)",
-                  display: "grid",
-                  gap: 8,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent:
-                      "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <span className="muted">
-                    Verified Gross
-                  </span>
-
-                  <strong>
-                    {peso(
-                      verifiedGrossPayments
-                    )}
-                  </strong>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent:
-                      "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <span className="muted">
-                    Processing Fees
-                  </span>
-
-                  <strong>
-                    {peso(
-                      verifiedProcessingFees
-                    )}
-                  </strong>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent:
-                      "space-between",
-                    gap: 12,
-                  }}
-                >
-                  <span className="muted">
-                    Verified Net
-                  </span>
-
-                  <strong>
-                    {peso(
-                      verifiedNetPayments
-                    )}
-                  </strong>
-                </div>
-
-                {verifiedProcessingFees > 0 && (
-                  <div
-                    className="notice"
-                    style={{
-                      marginTop: 4,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    Processing fees are separate
-                    from the booking amount. For QR
-                    PH, the customer pays the ₱5
-                    processing fee in addition to the
-                    booking payment.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TRANSACTIONS */}
-
-            <div
-              style={{
-                marginTop: 20,
-              }}
-            >
-              <div
-                className="section-label"
-                style={{
-                  marginBottom: 10,
-                }}
-              >
-                Transactions
+                <strong>
+                  {peso(
+                    appliedDiscount
+                  )}
+                </strong>
               </div>
 
-              {paymentRows.length > 0 ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gap: 10,
-                  }}
-                >
-                  {paymentRows.map((payment) => {
-                    const verified =
-                      isVerifiedPayment(payment);
+              {isStudentDiscount && (
+                <div className="bd-field">
+                  <span>
+                    Discount
+                    Type
+                  </span>
 
-                    const amount = Number(
-                      payment.amount || 0
-                    );
-
-                    const gross = Number(
-                      payment.gross_amount ??
-                        amount
-                    );
-
-                    const fee = Number(
-                      payment.processing_fee || 0
-                    );
-
-                    const net = Number(
-                      payment.net_amount ??
-                        amount
-                    );
-
-                    const transactionDate =
-                      payment.paid_at ||
-                      payment.verified_at ||
-                      payment.created_at;
-
-                    return (
-                      <div
-                        key={payment.id}
-                        style={{
-                          border:
-                            "1px solid var(--border, #e7e1dc)",
-                          borderRadius: 12,
-                          padding: 14,
-                          display: "grid",
-                          gap: 10,
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent:
-                              "space-between",
-                            alignItems:
-                              "flex-start",
-                            gap: 12,
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <div>
-                            <strong>
-                              {paymentTypeLabel(
-                                payment.payment_type
-                              )}
-                            </strong>
-
-                            <div
-                              className="muted"
-                              style={{
-                                marginTop: 3,
-                              }}
-                            >
-                              {payment.method || "—"}
-                              {" · "}
-                              {transactionDate
-                                ? new Date(
-                                    transactionDate
-                                  ).toLocaleString(
-                                    "en-PH",
-                                    {
-                                      dateStyle:
-                                        "medium",
-                                      timeStyle:
-                                        "short",
-                                    }
-                                  )
-                                : "—"}
-                            </div>
-                          </div>
-
-                          <span className="status-pill">
-                            {paymentStatusLabel(
-                              payment.status,
-                              payment.verified_at
-                            )}
-                          </span>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns:
-                              "repeat(auto-fit, minmax(120px, 1fr))",
-                            gap: 8,
-                          }}
-                        >
-                          <div>
-                            <span className="muted">
-                              Net
-                            </span>
-
-                            <strong
-                              style={{
-                                display: "block",
-                                marginTop: 3,
-                              }}
-                            >
-                              {peso(net)}
-                            </strong>
-                          </div>
-
-                          <div>
-                            <span className="muted">
-                              Gross
-                            </span>
-
-                            <strong
-                              style={{
-                                display: "block",
-                                marginTop: 3,
-                              }}
-                            >
-                              {peso(gross)}
-                            </strong>
-                          </div>
-
-                          <div>
-                            <span className="muted">
-                              Processing Fee
-                            </span>
-
-                            <strong
-                              style={{
-                                display: "block",
-                                marginTop: 3,
-                              }}
-                            >
-                              {peso(fee)}
-                            </strong>
-                          </div>
-                        </div>
-
-                        {payment.note && (
-                          <div
-                            className="muted"
-                            style={{
-                              paddingTop: 2,
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            <strong>Note:</strong>{" "}
-                            {payment.note}
-                          </div>
-                        )}
-
-                        {!verified &&
-                          payment.status !==
-                            "rejected" && (
-                            <div
-                              className="notice"
-                              style={{
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              This payment has not
-                              been verified and is
-                              not included in the
-                              booking balance totals.
-                            </div>
-                          )}
-                      </div>
-                    );
-                  })}
+                  <strong>
+                    {discountCategoryLabel(
+                      booking.discount_category
+                    )}
+                  </strong>
                 </div>
-              ) : (
-                <div className="empty-box">
-                  No payment transactions recorded
-                  yet.
+              )}
+
+              {isReferral && (
+                <div className="bd-field">
+                  <span>
+                    Referred By
+                  </span>
+
+                  <strong>
+                    {booking.referral_name ||
+                      "—"}
+                  </strong>
+                </div>
+              )}
+
+              {booking.discount_verified_at && (
+                <div className="bd-field">
+                  <span>
+                    Verified At
+                  </span>
+
+                  <strong>
+                    {formatDateTime(
+                      booking.discount_verified_at
+                    )}
+                  </strong>
                 </div>
               )}
             </div>
 
-            {verifiedOther > 0 && (
-              <div
-                className="muted"
-                style={{
-                  marginTop: 12,
-                  fontSize: 13,
-                }}
-              >
-                Other verified payments:{" "}
-                <strong>
-                  {peso(verifiedOther)}
-                </strong>
+            {isStudentDiscount && (
+              <div className="bd-student-docs">
+                <h3>
+                  Student /
+                  PWD / SC
+                  Verification
+                </h3>
+
+                <div className="bd-files">
+                  <div className="bd-file-row">
+                    <div>
+                      <strong>
+                        Valid ID
+                      </strong>
+
+                      <span>
+                        {studentValidId
+                          ? studentValidId.file_name ||
+                            "Uploaded valid ID"
+                          : "No valid ID uploaded"}
+                      </span>
+                    </div>
+
+                    {studentValidId?.signedUrl && (
+                      <a
+                        href={
+                          studentValidId.signedUrl
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        className="bd-small-button"
+                      >
+                        View ID
+                      </a>
+                    )}
+                  </div>
+
+                  {booking.discount_category ===
+                    "student" && (
+                    <div className="bd-file-row">
+                      <div>
+                        <strong>
+                          Registration
+                          Card /
+                          Form
+                        </strong>
+
+                        <span>
+                          {studentRegistration
+                            ? studentRegistration.file_name ||
+                              "Uploaded registration"
+                            : "No registration file uploaded"}
+                        </span>
+                      </div>
+
+                      {studentRegistration?.signedUrl && (
+                        <a
+                          href={
+                            studentRegistration.signedUrl
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="bd-small-button"
+                        >
+                          View
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </section>
-        </main>
+        )}
 
-        {/* SIDEBAR */}
+        {/* 5. BOOKING ACTIONS */}
 
-        <aside className="booking-detail-sidebar">
-          <section className="booking-control-card">
-            <div className="section-label">
-              Booking controls
+        <section className="bd-card">
+          <div className="bd-heading">
+            <div>
+              <h2>
+                Booking
+                Actions
+              </h2>
+
+              <p>
+                Edit or manage
+                the booking
+                status.
+              </p>
             </div>
+          </div>
 
-            <span className="status-pill">
-              {statusLabel(booking.status)}
-            </span>
+          <BookingActions
+            id={booking.id}
+            status={
+              booking.status
+            }
+            confirmationHref={
+              confirmationHref
+            }
+            promoName={
+              hasDiscount
+                ? promoName
+                : null
+            }
+            discountAmount={
+              requestedDiscount
+            }
+            discountVerified={
+              discountVerified
+            }
+          />
+        </section>
 
-            {/* ORIGINAL TOTAL */}
+        {/* 6. PAYMENT PROOF */}
 
-            <div className="total-block">
-              <span className="muted">
-                Original Total
+        <section className="bd-card">
+          <div className="bd-heading">
+            <div>
+              <h2>
+                Payment Proof
+              </h2>
+
+              <p>
+                Proofs uploaded
+                by the client.
+              </p>
+            </div>
+          </div>
+
+          {signedPaymentProofs.length ===
+          0 ? (
+            <div className="bd-empty">
+              No payment proof
+              uploaded.
+            </div>
+          ) : (
+            <div className="bd-files">
+              {signedPaymentProofs.map(
+                (
+                  proof
+                ) => (
+                  <div
+                    key={
+                      proof.id
+                    }
+                    className="bd-file-row"
+                  >
+                    <div>
+                      <strong>
+                        Payment
+                        Proof
+                      </strong>
+
+                      <span>
+                        {formatDateTime(
+                          proof.created_at
+                        )}
+                      </span>
+                    </div>
+
+                    {proof.signedUrl && (
+                      <a
+                        href={
+                          proof.signedUrl
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        className="bd-small-button"
+                      >
+                        View Proof
+                      </a>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 7. PAYMENT HISTORY */}
+
+        <section className="bd-card">
+          <div className="bd-heading">
+            <div>
+              <h2>
+                Payment
+                History
+              </h2>
+
+              <p>
+                All payment
+                records for this
+                booking.
+              </p>
+            </div>
+          </div>
+
+          <div className="bd-payment-summary">
+            <div>
+              <span>
+                Booking Total
               </span>
 
               <strong>
-                {peso(baseTotal)}
+                {peso(
+                  finalTotal
+                )}
               </strong>
             </div>
 
-            {/* DISCOUNT */}
-
-            <div className="balance-row">
-              <span>Discount</span>
+            <div>
+              <span>
+                Paid Toward
+                Booking
+              </span>
 
               <strong>
-                {discountVerified
-                  ? `−${peso(discountAmount)}`
-                  : peso(0)}
+                {peso(
+                  paidTowardBooking
+                )}
               </strong>
             </div>
 
-            {/* DOWN PAYMENT */}
-
-            <div className="balance-row">
-              <span>Down Payment</span>
+            <div>
+              <span>
+                Remaining
+              </span>
 
               <strong>
-                {peso(verifiedDownPayment)}
+                {peso(
+                  balanceRemaining
+                )}
               </strong>
             </div>
 
-            {/* BALANCE PAID */}
-
-            <div className="balance-row">
-              <span>Balance Paid</span>
+            <div>
+              <span>
+                Tips
+              </span>
 
               <strong>
-                {peso(verifiedBalancePaid)}
+                {peso(tips)}
               </strong>
             </div>
 
-            {/* FINAL TOTAL */}
-
-            <div className="balance-row">
-              <span>Final Total</span>
+            <div>
+              <span>
+                Additional
+                Charges
+              </span>
 
               <strong>
-                {peso(finalTotal)}
+                {peso(
+                  additionalCharges
+                )}
               </strong>
             </div>
 
-            {/* REMAINING */}
-
-            <div className="balance-row">
-              <span>Remaining</span>
+            <div>
+              <span>
+                Other
+              </span>
 
               <strong>
-                {peso(remaining)}
+                {peso(
+                  otherPayments
+                )}
               </strong>
             </div>
+          </div>
 
-            <div className="control-divider" />
+          {payments.length ===
+          0 ? (
+            <div className="bd-empty">
+              No payments
+              recorded.
+            </div>
+          ) : (
+            <div className="bd-payment-list">
+              {payments.map(
+                (
+                  payment
+                ) => (
+                  <div
+                    key={
+                      payment.id
+                    }
+                    className="bd-payment-row"
+                  >
+                    <div className="bd-payment-left">
+                      <strong>
+                        {peso(
+                          payment.net_amount ??
+                            payment.amount
+                        )}
+                      </strong>
 
-            {/* BOOKING STATUS CONTROLS */}
+                      <span>
+                        {payment.method ||
+                          "Payment"}
+                      </span>
 
-           <BookingActions
-  id={booking.id}
-  status={booking.status}
-  confirmationHref={
-    booking.access_token
-      ? `/confirmation/${booking.access_token}`
-      : null
-  }
-/>
+                      <small>
+                        {paymentTypeLabel(
+                          payment.payment_type
+                        )}
+                      </small>
 
-            {/* EDIT BOOKING */}
+                      {payment.note && (
+                        <small>
+                          Note:{" "}
+                          {
+                            payment.note
+                          }
+                        </small>
+                      )}
+                    </div>
 
-            <Link
-              href={`/admin/bookings/${booking.id}/edit`}
-              className="btn secondary"
-              style={{
-                width: "100%",
-                marginTop: 10,
-                textAlign: "center",
-              }}
-            >
-              Edit Booking
-            </Link>
+                    <div className="bd-payment-right">
+                      <span
+                        className={`bd-payment-status ${
+                          payment.status ||
+                          ""
+                        }`}
+                      >
+                        {statusLabel(
+                          payment.status
+                        )}
+                      </span>
 
-            {/* PAYMENT / BUSINESS ACTIONS */}
+                      <span>
+                        {formatDateTime(
+                          payment.paid_at ||
+                            payment.verified_at ||
+                            payment.created_at
+                        )}
+                      </span>
 
-            {booking.access_token && (
-              <BookingPaymentActions
-                token={booking.access_token}
-              />
-            )}
-          </section>
-        </aside>
+                      {payment.processing_fee !==
+                        null &&
+                        numberValue(
+                          payment.processing_fee
+                        ) >
+                          0 && (
+                          <span>
+                            Fee:{" "}
+                            {peso(
+                              payment.processing_fee
+                            )}
+                          </span>
+                        )}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 8. PAYMENT ACTIONS */}
+
+        <section className="bd-card">
+          <div className="bd-heading">
+            <div>
+              <h2>
+                Payment
+                Actions
+              </h2>
+
+              <p>
+                Verify, reject,
+                record payments,
+                or open the
+                client payment
+                page.
+              </p>
+            </div>
+          </div>
+
+          <div className="bd-payment-actions">
+            <AdminBookingPaymentManager
+              bookingId={
+                booking.id
+              }
+              bookingStatus={
+                bookingStatus
+              }
+              bookingTotal={
+                finalTotal
+              }
+              paidTowardBooking={
+                paidTowardBooking
+              }
+              remainingBalance={
+                balanceRemaining
+              }
+              payments={
+                payments
+              }
+            />
+
+            {accessToken &&
+              bookingStatus ===
+                "approved" && (
+                <BookingPaymentActions
+                  token={
+                    accessToken
+                  }
+                />
+              )}
+          </div>
+        </section>
+
+        {/* 9. ACTIVITY LOGS — ALWAYS LAST */}
+
+        <section
+          id="booking-activity-log"
+          className="bd-card bd-activity-card"
+        >
+          <details
+            open={
+              activityPaginationRequested
+                ? true
+                : undefined
+            }
+          >
+            <summary className="bd-activity-summary">
+              <div>
+                <h2>
+                  Activity Logs
+                </h2>
+
+                <p>
+                  Changes and
+                  actions
+                  performed on
+                  this booking.
+                </p>
+              </div>
+
+              <span className="bd-count">
+                {
+                  activityTotal
+                }
+              </span>
+            </summary>
+
+            <div className="bd-activity-body">
+              {activities.length ===
+              0 ? (
+                <div className="bd-empty">
+                  No activity has
+                  been recorded
+                  yet.
+                </div>
+              ) : (
+                <div className="bd-activity-list">
+                  {activities.map(
+                    (
+                      activity
+                    ) => (
+                      <div
+                        key={
+                          activity.id
+                        }
+                        className="bd-activity-item"
+                      >
+                        <div className="bd-activity-dot" />
+
+                        <div className="bd-activity-content">
+                          <div className="bd-activity-top">
+                            <strong>
+                              {prettyAction(
+                                activity.action
+                              )}
+                            </strong>
+
+                            <span>
+                              {formatDateTime(
+                                activity.created_at
+                              )}
+                            </span>
+                          </div>
+
+                          {activity.description && (
+                            <p>
+                              {
+                                activity.description
+                              }
+                            </p>
+                          )}
+
+                          {((activity.old_value !==
+                            null &&
+                            activity.old_value !==
+                              undefined) ||
+                            (activity.new_value !==
+                              null &&
+                            activity.new_value !==
+                              undefined)) && (
+                            <div className="bd-changes">
+                              <div className="bd-change-box">
+                                <span>
+                                  Previous
+                                </span>
+
+                                <div className="bd-change-values">
+                                  {activityValueRows(
+                                    activity.old_value
+                                  ).map(
+                                    (
+                                      row,
+                                      index
+                                    ) => (
+                                      <div
+                                        key={`${row.label}-${index}`}
+                                        className="bd-change-row"
+                                      >
+                                        <small>
+                                          {
+                                            row.label
+                                          }
+                                        </small>
+
+                                        <strong>
+                                          {
+                                            row.value
+                                          }
+                                        </strong>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="bd-change-box">
+                                <span>
+                                  New
+                                </span>
+
+                                <div className="bd-change-values">
+                                  {activityValueRows(
+                                    activity.new_value
+                                  ).map(
+                                    (
+                                      row,
+                                      index
+                                    ) => (
+                                      <div
+                                        key={`${row.label}-${index}`}
+                                        className="bd-change-row"
+                                      >
+                                        <small>
+                                          {
+                                            row.label
+                                          }
+                                        </small>
+
+                                        <strong>
+                                          {
+                                            row.value
+                                          }
+                                        </strong>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="bd-actor">
+                            By{" "}
+                            <strong>
+                              {activity.actor_email ||
+                                activity.actor_id ||
+                                "System"}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              {activityTotalPages > 1 && (
+                <nav
+                  className="bd-activity-pagination"
+                  aria-label="Activity log pages"
+                >
+                  {activityPage > 1 && (
+                    <Link
+                      href={`/admin/bookings/${id}?activityPage=${
+                        activityPage - 1
+                      }#booking-activity-log`}
+                      className="bd-page-link bd-page-nav"
+                    >
+                      Previous
+                    </Link>
+                  )}
+
+                  <div className="bd-page-numbers">
+                    {activityPageNumbers.map(
+                      (pageNumber) => (
+                        <Link
+                          key={
+                            pageNumber
+                          }
+                          href={`/admin/bookings/${id}?activityPage=${pageNumber}#booking-activity-log`}
+                          className={`bd-page-link ${
+                            pageNumber ===
+                            activityPage
+                              ? "active"
+                              : ""
+                          }`}
+                          aria-current={
+                            pageNumber ===
+                            activityPage
+                              ? "page"
+                              : undefined
+                          }
+                        >
+                          {pageNumber}
+                        </Link>
+                      )
+                    )}
+                  </div>
+
+                  {activityPage <
+                    activityTotalPages && (
+                    <Link
+                      href={`/admin/bookings/${id}?activityPage=${
+                        activityPage + 1
+                      }#booking-activity-log`}
+                      className="bd-page-link bd-page-nav"
+                    >
+                      Next
+                    </Link>
+                  )}
+                </nav>
+              )}
+            </div>
+          </details>
+        </section>
       </div>
-    </div>
+
+      <style>{`
+        .bd-page,
+        .bd-page * {
+          box-sizing: border-box;
+        }
+
+        .bd-page {
+          width: 100%;
+          max-width: 1050px;
+          margin: 0 auto;
+          padding: 28px;
+          color: #111;
+          overflow-x: hidden;
+        }
+
+        .bd-header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 18px;
+          margin-bottom: 22px;
+        }
+
+        .bd-header-copy {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .bd-kicker {
+          margin-bottom: 5px;
+          color: #777;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+        }
+
+        .bd-page h1 {
+          margin: 0;
+          font-family: inherit;
+          font-size: 27px;
+          font-weight: 700;
+          line-height: 1.2;
+        }
+
+        .bd-reference {
+          margin: 5px 0 0;
+          color: #777;
+          font-size: 13px;
+          overflow-wrap: anywhere;
+        }
+
+        .bd-back-button {
+          flex: 0 0 auto;
+          min-height: 42px;
+          padding: 10px 14px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          background: #fff;
+          color: #111;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-family: inherit;
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1.2;
+          text-decoration: none;
+          white-space: nowrap;
+        }
+
+        .bd-back-button:hover {
+          background: #f7f7f7;
+        }
+
+        .bd-flow {
+          display: grid;
+          gap: 16px;
+        }
+
+        .bd-card {
+          width: 100%;
+          min-width: 0;
+          padding: 22px;
+          border: 1px solid #e4dfdd;
+          border-radius: 14px;
+          background: #fff;
+          overflow: hidden;
+        }
+
+        .bd-heading {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 14px;
+          margin-bottom: 18px;
+        }
+
+        .bd-heading h2,
+        .bd-activity-summary h2 {
+          margin: 0;
+          font-size: 18px;
+          line-height: 1.3;
+        }
+
+        .bd-heading p,
+        .bd-activity-summary p {
+          margin: 4px 0 0;
+          color: #777;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .bd-grid {
+          display: grid;
+          gap: 16px;
+        }
+
+        .bd-grid-4 {
+          grid-template-columns:
+            repeat(
+              4,
+              minmax(0, 1fr)
+            );
+        }
+
+        .bd-grid-3 {
+          grid-template-columns:
+            repeat(
+              3,
+              minmax(0, 1fr)
+            );
+        }
+
+        .bd-grid-2 {
+          grid-template-columns:
+            repeat(
+              2,
+              minmax(0, 1fr)
+            );
+        }
+
+        .bd-field {
+          min-width: 0;
+        }
+
+        .bd-full {
+          grid-column: 1 / -1;
+        }
+
+        .bd-field > span,
+        .bd-info-box > span,
+        .bd-payment-summary span,
+        .bd-change-box > span {
+          display: block;
+          margin-bottom: 5px;
+          color: #777;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: .04em;
+          text-transform: uppercase;
+        }
+
+        .bd-field strong {
+          display: block;
+          min-width: 0;
+          font-size: 14px;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .bd-note {
+          margin: 0;
+          color: #333;
+          font-size: 13px;
+          line-height: 1.55;
+          white-space: pre-wrap;
+          overflow-wrap: anywhere;
+        }
+
+        .bd-status {
+          text-transform: capitalize;
+        }
+
+        .bd-info-box {
+          padding: 15px;
+          border: 1px solid #e5e0de;
+          border-radius: 10px;
+          background: #faf9f8;
+        }
+
+        .bd-info-box strong {
+          font-size: 15px;
+        }
+
+        .bd-services {
+          margin-top: 22px;
+        }
+
+        .bd-services h3,
+        .bd-student-docs h3 {
+          margin: 0 0 10px;
+          font-size: 13px;
+        }
+
+        .bd-service-row {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 13px 0;
+          border-top: 1px solid #eee;
+        }
+
+        .bd-service-details {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .bd-service-details strong {
+          display: block;
+          font-size: 14px;
+          line-height: 1.4;
+        }
+
+        .bd-service-details span,
+        .bd-service-details small {
+          display: inline-block;
+          margin-top: 3px;
+          margin-right: 8px;
+          color: #777;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+
+        .bd-price {
+          flex: 0 0 auto;
+          font-size: 14px;
+          white-space: nowrap;
+        }
+
+        .bd-booking-form-details {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              2,
+              minmax(0, 1fr)
+            );
+          gap: 16px;
+          margin-top: 20px;
+          padding-top: 18px;
+          border-top: 1px solid #eee;
+        }
+
+        .bd-totals {
+          margin-top: 18px;
+          padding-top: 12px;
+          border-top: 1px solid #ddd;
+        }
+
+        .bd-totals > div {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 5px 0;
+          color: #444;
+          font-size: 13px;
+        }
+
+        .bd-discount {
+          color: #176b2c !important;
+        }
+
+        .bd-grand-total {
+          margin-top: 5px;
+          padding-top: 12px !important;
+          border-top: 1px solid #ddd;
+          color: #111 !important;
+          font-size: 15px !important;
+          font-weight: 700;
+        }
+
+        .bd-grand-total strong {
+          font-size: 17px;
+        }
+
+        .bd-files {
+          width: 100%;
+        }
+
+        .bd-file-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 15px;
+          padding: 13px 0;
+          border-top: 1px solid #eee;
+        }
+
+        .bd-file-row > div {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .bd-file-row strong {
+          display: block;
+          font-size: 13px;
+          line-height: 1.4;
+          overflow-wrap: anywhere;
+        }
+
+        .bd-file-row span {
+          display: block;
+          margin-top: 3px;
+          color: #777;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .bd-small-button {
+          flex: 0 0 auto;
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          background: #fff;
+          color: #111;
+          font-size: 12px;
+          font-weight: 600;
+          text-decoration: none;
+          white-space: nowrap;
+        }
+
+        .bd-small-button:hover {
+          background: #f7f7f7;
+        }
+
+        .bd-badge {
+          flex: 0 0 auto;
+          padding: 6px 9px;
+          border-radius: 999px;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .bd-badge.approved {
+          background: #edf8f0;
+          color: #176b2c;
+        }
+
+        .bd-badge.pending {
+          background: #f3f3f3;
+          color: #666;
+        }
+
+        .bd-student-docs {
+          margin-top: 20px;
+          padding-top: 18px;
+          border-top: 1px solid #eee;
+        }
+
+        .bd-payment-summary {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              3,
+              minmax(0, 1fr)
+            );
+          gap: 10px;
+          margin-bottom: 18px;
+        }
+
+        .bd-payment-summary > div {
+          min-width: 0;
+          padding: 12px;
+          border-radius: 9px;
+          background: #f7f6f5;
+        }
+
+        .bd-payment-summary strong {
+          display: block;
+          font-size: 14px;
+          overflow-wrap: anywhere;
+        }
+
+        .bd-payment-list {
+          width: 100%;
+        }
+
+        .bd-payment-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 15px;
+          padding: 13px 0;
+          border-top: 1px solid #eee;
+        }
+
+        .bd-payment-left {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .bd-payment-left strong {
+          display: block;
+          font-size: 14px;
+        }
+
+        .bd-payment-left span,
+        .bd-payment-left small {
+          display: block;
+          margin-top: 2px;
+          color: #777;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+
+        .bd-payment-right {
+          max-width: 45%;
+          text-align: right;
+        }
+
+        .bd-payment-right > span {
+          display: block;
+          color: #777;
+          font-size: 11px;
+          line-height: 1.4;
+          overflow-wrap: anywhere;
+        }
+
+        .bd-payment-status {
+          display: inline-block !important;
+          margin-bottom: 4px;
+          padding: 4px 8px;
+          border-radius: 999px;
+          background: #f1f1f1;
+          color: #444 !important;
+          font-weight: 600;
+        }
+
+        .bd-payment-status.verified {
+          background: #edf8f0;
+          color: #176b2c !important;
+        }
+
+        .bd-payment-status.rejected {
+          background: #fff0ef;
+          color: #a61b13 !important;
+        }
+
+        .bd-payment-actions {
+          display: grid;
+          gap: 20px;
+        }
+
+        .bd-activity-card {
+          padding: 0;
+        }
+
+        .bd-activity-card details {
+          width: 100%;
+        }
+
+        .bd-activity-summary {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 22px;
+          cursor: pointer;
+          list-style: none;
+        }
+
+        .bd-activity-summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .bd-activity-summary::after {
+          content: "＋";
+          flex: 0 0 auto;
+          color: #777;
+          font-size: 18px;
+        }
+
+        .bd-activity-card details[open]
+          .bd-activity-summary::after {
+          content: "−";
+        }
+
+        .bd-activity-summary > div {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .bd-count {
+          flex: 0 0 auto;
+          min-width: 30px;
+          padding: 5px 8px;
+          border-radius: 999px;
+          background: #f2f2f2;
+          color: #555;
+          font-size: 11px;
+          font-weight: 700;
+          text-align: center;
+        }
+
+        .bd-activity-body {
+          padding: 0 22px 22px;
+          border-top: 1px solid #eee;
+        }
+
+        .bd-activity-list {
+          padding-top: 18px;
+        }
+
+        .bd-activity-item {
+          display: flex;
+          gap: 12px;
+          padding-bottom: 24px;
+        }
+
+        .bd-activity-item:last-child {
+          padding-bottom: 0;
+        }
+
+        .bd-activity-dot {
+          flex: 0 0 9px;
+          width: 9px;
+          height: 9px;
+          margin-top: 5px;
+          border-radius: 50%;
+          background: #111;
+        }
+
+        .bd-activity-content {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .bd-activity-top {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .bd-activity-top strong {
+          font-size: 14px;
+          line-height: 1.4;
+        }
+
+        .bd-activity-top span {
+          max-width: 45%;
+          color: #777;
+          font-size: 11px;
+          text-align: right;
+        }
+
+        .bd-activity-content > p {
+          margin: 6px 0 10px;
+          color: #444;
+          font-size: 13px;
+          line-height: 1.5;
+        }
+
+        .bd-changes {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              2,
+              minmax(0, 1fr)
+            );
+          gap: 10px;
+          margin-bottom: 9px;
+        }
+
+        .bd-change-box {
+          min-width: 0;
+          padding: 9px;
+          border: 1px solid #e5e5e5;
+          border-radius: 8px;
+          background: #fafafa;
+        }
+
+        .bd-change-values {
+          display: grid;
+          gap: 8px;
+        }
+
+        .bd-change-row {
+          min-width: 0;
+        }
+
+        .bd-change-row small {
+          display: block;
+          margin-bottom: 2px;
+          color: #777;
+          font-size: 10px;
+          font-weight: 600;
+          line-height: 1.3;
+        }
+
+        .bd-change-row strong {
+          display: block;
+          color: #222;
+          font-size: 12px;
+          font-weight: 600;
+          line-height: 1.45;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+        }
+
+        .bd-actor {
+          color: #777;
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .bd-actor strong {
+          color: #555;
+        }
+
+        .bd-activity-pagination {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          margin-top: 18px;
+          padding-top: 16px;
+          border-top: 1px solid #eee;
+          flex-wrap: wrap;
+        }
+
+        .bd-page-numbers {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .bd-page-link {
+          min-width: 32px;
+          height: 32px;
+          padding: 0 9px;
+          border: 1px solid #ddd;
+          border-radius: 7px;
+          background: #fff;
+          color: #333;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 1;
+          text-decoration: none;
+        }
+
+        .bd-page-link:hover {
+          background: #f7f4f3;
+        }
+
+        .bd-page-link.active {
+          border-color: #332b2d;
+          background: #332b2d;
+          color: #fff;
+        }
+
+        .bd-page-nav {
+          min-width: auto;
+          padding: 0 11px;
+        }
+
+        .bd-empty {
+          padding: 16px 0;
+          color: #777;
+          font-size: 13px;
+          line-height: 1.4;
+        }
+
+        @media (
+          max-width: 850px
+        ) {
+          .bd-grid-4,
+          .bd-grid-3 {
+            grid-template-columns:
+              repeat(
+                2,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
+          }
+
+          .bd-payment-summary {
+            grid-template-columns:
+              repeat(
+                2,
+                minmax(
+                  0,
+                  1fr
+                )
+              );
+          }
+        }
+
+        @media (
+          max-width: 600px
+        ) {
+          .bd-page {
+            padding: 18px 13px;
+          }
+
+          .bd-header {
+            align-items: flex-start;
+            gap: 12px;
+          }
+
+          .bd-back-button {
+            min-height: 38px;
+            padding: 8px 10px;
+            font-size: 12px;
+          }
+
+          .bd-page h1 {
+            font-size: 26px;
+          }
+
+          .bd-card {
+            padding: 17px;
+          }
+
+          .bd-grid-4,
+          .bd-grid-3,
+          .bd-grid-2,
+          .bd-booking-form-details,
+          .bd-payment-summary,
+          .bd-changes {
+            grid-template-columns:
+              1fr;
+          }
+
+          .bd-service-row,
+          .bd-file-row,
+          .bd-payment-row {
+            flex-direction:
+              column;
+            align-items:
+              flex-start;
+          }
+
+          .bd-payment-right {
+            width: 100%;
+            max-width: 100%;
+            text-align: left;
+          }
+
+          .bd-small-button {
+            width: 100%;
+          }
+
+          .bd-heading {
+            flex-direction:
+              column;
+          }
+
+          .bd-activity-summary {
+            padding: 17px;
+          }
+
+          .bd-activity-body {
+            padding:
+              0 17px 17px;
+          }
+
+          .bd-activity-top {
+            flex-direction:
+              column;
+            gap: 4px;
+          }
+
+          .bd-activity-top span {
+            max-width: 100%;
+            text-align: left;
+          }
+        }
+      `}</style>
+    </main>
   );
 }

@@ -6,12 +6,6 @@ import PaymentQueue from "@/components/PaymentQueue";
 export default async function Payments() {
   const db = supabaseAdmin();
 
-  /*
-   * ============================================================
-   * LOAD PAYMENTS
-   * ============================================================
-   */
-
   const {
     data: payments,
     error: paymentsError,
@@ -33,6 +27,7 @@ export default async function Payments() {
       paid_at,
       bookings(
         id,
+        status,
         reference_code,
         customer_name,
         preferred_date,
@@ -53,15 +48,16 @@ export default async function Payments() {
     );
   }
 
-  /*
-   * ============================================================
-   * LOAD PAYMENT PROOFS
-   * ============================================================
-   */
+  const realPayments =
+    (payments || []).filter(
+      (payment: any) =>
+        payment.bookings &&
+        payment.bookings.status !== "draft"
+    );
 
   const bookingIds = Array.from(
     new Set(
-      (payments || [])
+      realPayments
         .map(
           (payment: any) =>
             payment.booking_id
@@ -77,22 +73,17 @@ export default async function Payments() {
       data: proofs,
       error: proofError,
     } = await db
-      .from("booking_files")
+      .from("payment_proofs")
       .select(`
         id,
         booking_id,
         bucket,
         path,
-        kind,
         created_at
       `)
       .in(
         "booking_id",
         bookingIds
-      )
-      .eq(
-        "kind",
-        "payment_proof"
       )
       .order("created_at", {
         ascending: false,
@@ -108,12 +99,6 @@ export default async function Payments() {
         proofs || [];
     }
   }
-
-  /*
-   * ============================================================
-   * CREATE SIGNED PROOF URLS
-   * ============================================================
-   */
 
   const signedProofs =
     await Promise.all(
@@ -162,12 +147,6 @@ export default async function Payments() {
       )
     );
 
-  /*
-   * ============================================================
-   * LATEST PROOF PER BOOKING
-   * ============================================================
-   */
-
   const latestProofByBooking =
     new Map<
       string,
@@ -189,14 +168,8 @@ export default async function Payments() {
     }
   }
 
-  /*
-   * ============================================================
-   * BUILD PAYMENT ROWS
-   * ============================================================
-   */
-
   const rows =
-    (payments || []).map(
+    realPayments.map(
       (payment: any) => {
         const proof =
           latestProofByBooking.get(
@@ -217,15 +190,13 @@ export default async function Payments() {
           proofPath:
             proof?.path ||
             null,
+
+          proofCreatedAt:
+            proof?.created_at ||
+            null,
         };
       }
     );
-
-  /*
-   * ============================================================
-   * PAYMENT STATISTICS
-   * ============================================================
-   */
 
   const submittedCount =
     rows.filter(
@@ -270,16 +241,10 @@ export default async function Payments() {
       0
     );
 
-  /*
-   * ============================================================
-   * PAGE
-   * ============================================================
-   */
-
   return (
-    <div className="admin-page">
+    <div className="admin-page payments-page">
       <section
-        className="admin-page-head"
+        className="admin-page-head payments-page-head"
         style={{
           marginBottom: 24,
         }}
@@ -305,134 +270,259 @@ export default async function Payments() {
             balances, tips, and extra charges.
           </p>
         </div>
+
+        <a
+          href="/api/admin/payments/export"
+          className="btn secondary payments-export-btn"
+        >
+          Export CSV
+        </a>
       </section>
 
       <section>
-        <div
-          className="admin-stat-grid admin-stat-grid-clean"
-          style={{
-            gap: 18,
-          }}
-        >
-          <div
-            className="card admin-stat-card admin-stat-card-clean"
-            style={{
-              minWidth: 0,
-            }}
-          >
-            <div className="admin-stat-topline">
-              <span>
+        <div className="payment-stat-grid">
+          <div className="card payment-stat-card">
+            <div className="payment-stat-inner">
+              <div className="payment-stat-label">
                 To verify
-              </span>
-            </div>
+              </div>
 
-            <div className="admin-stat-number">
-              {submittedCount}
-            </div>
+              <div className="payment-stat-number">
+                {submittedCount}
+              </div>
 
-            <p>
-              Submitted payment proofs
-            </p>
+              <p>
+                Submitted payment proofs
+              </p>
+            </div>
           </div>
 
-          <div
-            className="card admin-stat-card admin-stat-card-clean"
-            style={{
-              minWidth: 0,
-            }}
-          >
-            <div className="admin-stat-topline">
-              <span>
+          <div className="card payment-stat-card">
+            <div className="payment-stat-inner">
+              <div className="payment-stat-label">
                 Verified net
-              </span>
-            </div>
+              </div>
 
-            <div
-              className="admin-stat-number"
-              style={{
-                fontSize: 26,
-              }}
-            >
-              ₱
-              {verifiedNet.toLocaleString(
-                "en-PH",
-                {
-                  minimumFractionDigits:
-                    2,
-                  maximumFractionDigits:
-                    2,
-                }
-              )}
-            </div>
+              <div className="payment-stat-number">
+                ₱
+                {verifiedNet.toLocaleString(
+                  "en-PH",
+                  {
+                    minimumFractionDigits:
+                      2,
+                    maximumFractionDigits:
+                      2,
+                  }
+                )}
+              </div>
 
-            <p>
-              Amount credited to bookings
-            </p>
+              <p>
+                Amount credited to bookings
+              </p>
+            </div>
           </div>
 
-          <div
-            className="card admin-stat-card admin-stat-card-clean"
-            style={{
-              minWidth: 0,
-            }}
-          >
-            <div className="admin-stat-topline">
-              <span>
+          <div className="card payment-stat-card">
+            <div className="payment-stat-inner">
+              <div className="payment-stat-label">
                 QR PH fees
-              </span>
-            </div>
+              </div>
 
-            <div
-              className="admin-stat-number"
-              style={{
-                fontSize: 26,
-              }}
-            >
-              ₱
-              {verifiedFees.toLocaleString(
-                "en-PH",
-                {
-                  minimumFractionDigits:
-                    2,
-                  maximumFractionDigits:
-                    2,
-                }
-              )}
-            </div>
+              <div className="payment-stat-number">
+                ₱
+                {verifiedFees.toLocaleString(
+                  "en-PH",
+                  {
+                    minimumFractionDigits:
+                      2,
+                    maximumFractionDigits:
+                      2,
+                  }
+                )}
+              </div>
 
-            <p>
-              Separate processing fees
-            </p>
+              <p>
+                Separate processing fees
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
       <section
         style={{
-          marginTop: 32,
+          marginTop: 28,
         }}
       >
         <div
-          className="admin-section-title-row"
           style={{
             marginBottom: 16,
           }}
         >
-          <div>
-            <div className="kicker">
-              Activity
-            </div>
-
-            <h2 className="serif">
-              Payment records
-            </h2>
+          <div className="kicker">
+            Activity
           </div>
+
+          <h2
+            className="serif"
+            style={{
+              marginTop: 3,
+            }}
+          >
+            Payment records
+          </h2>
         </div>
 
-        <PaymentQueue
-          payments={rows}
-        />
+        <PaymentQueue payments={rows} />
       </section>
+
+      <style>{`
+        .payments-page-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 18px;
+        }
+
+        .payments-export-btn {
+          flex: 0 0 auto;
+          white-space: nowrap;
+        }
+
+        .payment-stat-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          width: 100%;
+          max-width: 760px;
+          align-items: stretch;
+        }
+
+        .payment-stat-card {
+          min-width: 0;
+          height: 112px;
+          padding: 0 !important;
+          border-radius: 12px;
+          box-sizing: border-box;
+        }
+
+        .payment-stat-inner {
+          display: grid;
+          grid-template-rows:
+            14px
+            minmax(28px, auto)
+            28px;
+          align-content: center;
+          width: 100%;
+          height: 100%;
+          padding: 13px 15px;
+          box-sizing: border-box;
+        }
+          .payment-stat-card:first-child {
+  transform: translateY(14px);
+}
+          
+
+        .payment-stat-label {
+          color: #777;
+          font-size: 10px;
+          font-weight: 600;
+          line-height: 1.2;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+
+        .payment-stat-number {
+          display: flex;
+          align-items: center;
+          min-width: 0;
+          margin: 0;
+          color: #111;
+          font-size: 20px;
+          font-weight: 700;
+          line-height: 1.1;
+          white-space: nowrap;
+        }
+
+        .payment-stat-card p {
+          display: flex;
+          align-items: flex-end;
+          min-width: 0;
+          margin: 0;
+          color: #888;
+          font-size: 10px;
+          line-height: 1.3;
+        }
+
+      
+
+        @media (max-width: 700px) {
+          .payments-page-head {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .payments-export-btn {
+            width: 100%;
+            text-align: center;
+          }
+
+          .payment-stat-grid {
+            grid-template-columns:
+              repeat(3, minmax(0, 1fr));
+            gap: 7px;
+            max-width: 100%;
+          }
+
+          .payment-stat-card {
+            height: 96px;
+            border-radius: 10px;
+          }
+
+          .payment-stat-inner {
+            grid-template-rows:
+              12px
+              minmax(24px, auto)
+              25px;
+            padding: 10px 8px;
+          }
+
+          .payment-stat-label {
+            font-size: 8px;
+          }
+
+          .payment-stat-number {
+            font-size: 14px;
+          }
+
+          .payment-stat-card p {
+            font-size: 8px;
+            line-height: 1.2;
+          }
+
+         
+        }
+
+        @media (max-width: 430px) {
+          .payment-stat-grid {
+            gap: 6px;
+          }
+
+          .payment-stat-card {
+            height: 94px;
+          }
+
+          .payment-stat-inner {
+            padding: 9px 7px;
+          }
+
+          .payment-stat-number {
+            font-size: 13px;
+          }
+            
+        }
+      `}</style>
     </div>
   );
 }

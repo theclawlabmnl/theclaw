@@ -159,6 +159,9 @@ type BookingFormProps = {
   services: ServiceItem[];
   promos: any[];
   settings: Record<string, string>;
+  /** Optional draft supplied by the /book page.
+   * The API remains the source of truth and is fetched below when a token exists.
+   */
   draft?: any | null;
   draftToken?: string | null;
 };
@@ -167,18 +170,20 @@ export default function BookingForm({
   services,
   promos,
   settings,
-  draft,
-  draftToken,
+  draft = null,
+  draftToken = null,
 }: BookingFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // Prefer the explicit token supplied by BookPage, then fall back to the URL.
   const editToken =
     draftToken ||
     searchParams.get("token") ||
     "";
 
-  // The API GET remains the source of truth for the editable draft.
+  // BookPage may provide a draft object; the API GET below is still the
+  // authoritative source so the same token and latest server data are used.
   void draft;
 
   const isEditing =
@@ -327,6 +332,11 @@ export default function BookingForm({
     setError,
   ] = useState("");
 
+  const [
+    openVariationServiceId,
+    setOpenVariationServiceId,
+  ] = useState<string | null>(null);
+
   /*
    * LOAD EXISTING BOOKING
    *
@@ -396,10 +406,44 @@ export default function BookingForm({
             continue;
           }
 
+          const service =
+            services.find(
+              (serviceItem: ServiceItem) =>
+                serviceItem.id ===
+                item.service_id
+            );
+
+          const firstActiveVariation =
+            (
+              service
+                ?.service_variations ||
+              []
+            )
+              .filter(
+                (
+                  variation: ServiceVariation
+                ) =>
+                  variation.active
+              )
+              .sort(
+                (
+                  a: ServiceVariation,
+                  b: ServiceVariation
+                ) =>
+                  Number(
+                    a.sort_order || 0
+                  ) -
+                  Number(
+                    b.sort_order || 0
+                  )
+              )[0];
+
           nextSelectedServices[
             item.service_id
           ] =
-            item.variation_id || "";
+            item.variation_id ||
+            firstActiveVariation?.id ||
+            "";
         }
 
         setSelectedServices(
@@ -920,7 +964,27 @@ export default function BookingForm({
             service.id
           ];
         } else {
+          const firstActiveVariation =
+            (
+              service.service_variations ||
+              []
+            )
+              .filter(
+                (variation) =>
+                  variation.active
+              )
+              .sort(
+                (a, b) =>
+                  Number(
+                    a.sort_order || 0
+                  ) -
+                  Number(
+                    b.sort_order || 0
+                  )
+              )[0];
+
           next[service.id] =
+            firstActiveVariation?.id ||
             "";
         }
 
@@ -1067,7 +1131,22 @@ export default function BookingForm({
         !existingStudentValidId
       ) {
         setError(
-          "Please upload a valid ID for the Student / PWD / SC discount."
+          discountCategory === "student"
+            ? "Please upload your School ID."
+            : "Please upload a valid ID for the PWD / Senior Citizen discount."
+        );
+        return;
+      }
+
+      if (
+        promoChoice ===
+          "student_pwd_sc" &&
+        discountCategory === "student" &&
+        !studentRegistration &&
+        !existingStudentRegistration
+      ) {
+        setError(
+          "Please upload your Registration Form/Card."
         );
         return;
       }
@@ -1347,6 +1426,20 @@ export default function BookingForm({
               </div>
             </div>
 
+            <div className="booking-helper">
+              Not sure which design tier to
+              choose?{" "}
+              <a
+                href={
+                  DESIGN_GUIDE_URL
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                View our Design Tier Guide →
+              </a>
+            </div>
+
             <div className="booking-services">
               {services.map(
                 (service) => {
@@ -1414,84 +1507,167 @@ export default function BookingForm({
                             Variation
                           </label>
 
-                          <select
-                            value={
-                              selectedServices[
+                          <div className="booking-custom-select">
+                            <button
+                              type="button"
+                              className={`booking-custom-select-trigger ${
+                                openVariationServiceId ===
                                 service.id
-                              ]
-                            }
-                            onChange={(
-                              event
-                            ) => {
-                              setSelectedServices(
-                                (
-                                  current
-                                ) => ({
-                                  ...current,
-                                  [service.id]:
-                                    event
-                                      .target
-                                      .value,
-                                })
-                              );
+                                  ? "is-open"
+                                  : ""
+                              }`}
+                              aria-haspopup="listbox"
+                              aria-expanded={
+                                openVariationServiceId ===
+                                service.id
+                              }
+                              onClick={() =>
+                                setOpenVariationServiceId(
+                                  (current) =>
+                                    current ===
+                                    service.id
+                                      ? null
+                                      : service.id
+                                )
+                              }
+                            >
+                              <span>
+                                {(() => {
+                                  const selectedVariation =
+                                    service.service_variations
+                                      ?.filter(
+                                        (variation) =>
+                                          variation.active
+                                      )
+                                      .find(
+                                        (variation) =>
+                                          variation.id ===
+                                          selectedServices[
+                                            service.id
+                                          ]
+                                      );
 
-                              setPreferredDate(
-                                ""
-                              );
+                                  if (!selectedVariation) {
+                                    return "Select variation";
+                                  }
 
-                              setPreferredTime(
-                                ""
-                              );
-                            }}
-                          >
-                            <option value="">
-                              Standard
-                            </option>
-
-                            {service.service_variations
-                              ?.filter(
-                                (
-                                  variation
-                                ) =>
-                                  variation.active
-                              )
-                              .sort(
-                                (
-                                  a,
-                                  b
-                                ) =>
-                                  a.sort_order -
-                                  b.sort_order
-                              )
-                              .map(
-                                (
-                                  variation
-                                ) => (
-                                  <option
-                                    key={
-                                      variation.id
-                                    }
-                                    value={
-                                      variation.id
-                                    }
-                                  >
-                                    {
-                                      variation.name
-                                    }{" "}
-                                    {Number(
-                                      variation.price_delta
-                                    ) >=
-                                    0
+                                  return `${selectedVariation.name} ${
+                                    Number(
+                                      selectedVariation.price_delta
+                                    ) >= 0
                                       ? `(+${peso(
-                                          variation.price_delta
+                                          selectedVariation.price_delta
                                         )})`
                                       : `(${peso(
-                                          variation.price_delta
-                                        )})`}
-                                  </option>
-                                )
-                              )}
-                          </select>
+                                          selectedVariation.price_delta
+                                        )})`
+                                  }`;
+                                })()}
+                              </span>
+
+                              <span
+                                className="booking-custom-select-chevron"
+                                aria-hidden="true"
+                              >
+                                ▾
+                              </span>
+                            </button>
+
+                            {openVariationServiceId ===
+                              service.id && (
+                              <div
+                                className="booking-custom-select-menu"
+                                role="listbox"
+                                aria-label={`${service.name} variations`}
+                              >
+                                {service.service_variations
+                                  ?.filter(
+                                    (variation) =>
+                                      variation.active
+                                  )
+                                  .sort(
+                                    (a, b) =>
+                                      a.sort_order -
+                                      b.sort_order
+                                  )
+                                  .map(
+                                    (variation) => {
+                                      const isSelected =
+                                        selectedServices[
+                                          service.id
+                                        ] ===
+                                        variation.id;
+
+                                      return (
+                                        <button
+                                          type="button"
+                                          role="option"
+                                          aria-selected={
+                                            isSelected
+                                          }
+                                          key={
+                                            variation.id
+                                          }
+                                          className={`booking-custom-select-option ${
+                                            isSelected
+                                              ? "is-selected"
+                                              : ""
+                                          }`}
+                                          onClick={() => {
+                                            setSelectedServices(
+                                              (
+                                                current
+                                              ) => ({
+                                                ...current,
+                                                [service.id]:
+                                                  variation.id,
+                                              })
+                                            );
+
+                                            setPreferredDate(
+                                              ""
+                                            );
+                                            setPreferredTime(
+                                              ""
+                                            );
+                                            setOpenVariationServiceId(
+                                              null
+                                            );
+                                          }}
+                                        >
+                                          <span>
+                                            {
+                                              variation.name
+                                            }
+                                          </span>
+
+                                          <strong>
+                                            {Number(
+                                              variation.price_delta
+                                            ) >= 0
+                                              ? `+${peso(
+                                                  variation.price_delta
+                                                )}`
+                                              : peso(
+                                                  variation.price_delta
+                                                )}
+                                          </strong>
+
+                                          {isSelected && (
+                                            <span
+                                              className="booking-custom-select-check"
+                                              aria-hidden="true"
+                                            >
+                                              ✓
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    }
+                                  )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1500,19 +1676,6 @@ export default function BookingForm({
               )}
             </div>
 
-            <div className="booking-helper">
-              Not sure which design tier to
-              choose?{" "}
-              <a
-                href={
-                  DESIGN_GUIDE_URL
-                }
-                target="_blank"
-                rel="noreferrer"
-              >
-                View our Design Tier Guide →
-              </a>
-            </div>
           </section>
 
           {/* 02 DETAILS */}
@@ -2018,6 +2181,8 @@ export default function BookingForm({
                   for verification.
                 </p>
 
+            
+
                 {isEditing &&
                   existingStudentValidId &&
                   !studentValidId && (
@@ -2078,53 +2243,68 @@ export default function BookingForm({
 
                 <div className="field">
                   <label>
-                    Valid ID *
+                    {discountCategory === "student"
+                      ? "School ID *"
+                      : "Valid ID *"}
                   </label>
 
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.heic,.heif,.pdf,image/jpeg,image/png,application/pdf"
-                    onChange={(
-                      event
-                    ) =>
-                      setStudentValidId(
-                        event.target.files?.[0] ||
-                          null
-                      )
-                    }
-                  />
-
-                  {studentValidId && (
-                    <div className="booking-file-note">
-                      New ID selected:{" "}
-                      {studentValidId.name}
-                    </div>
-                  )}
-                </div>
-
-                {discountCategory ===
-                  "student" && (
-                  <div className="field">
-                    <label>
-                      Current Registration Card/Form
-                      <span className="muted">
-                        {" "}
-                        (Optional)
-                      </span>
-                    </label>
-
+                  <div className="booking-upload booking-discount-upload">
                     <input
                       type="file"
                       accept=".jpg,.jpeg,.png,.heic,.heif,.pdf,image/jpeg,image/png,application/pdf"
                       onChange={(
                         event
                       ) =>
-                        setStudentRegistration(
+                        setStudentValidId(
                           event.target.files?.[0] ||
                             null
                         )
                       }
                     />
+
+                    <p>
+                      {studentValidId
+                        ? `Selected: ${studentValidId.name}`
+                        : isEditing &&
+                            existingStudentValidId
+                          ? "Existing ID is already on file."
+                          : "JPG, PNG, HEIC, or PDF."}
+                    </p>
+                  </div>
+                </div>
+
+                {discountCategory ===
+                  "student" && (
+                  <div className="field">
+                    <label>
+                      Registration Form/Card *
+                    </label>
+
+                    <div className="booking-upload booking-discount-upload">
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.heic,.heif,.pdf,image/jpeg,image/png,application/pdf"
+                        onChange={(
+                          event
+                        ) =>
+                          setStudentRegistration(
+                            event.target.files?.[0] ||
+                              null
+                          )
+                        }
+                      />
+
+                      <p>
+                        {studentRegistration
+                          ? `Selected: ${studentRegistration.name}`
+                          : isEditing &&
+                              existingStudentRegistration
+                            ? "Existing registration is already on file."
+                            : "JPG, PNG, HEIC, or PDF."}
+                      </p>
+                    </div>
+
+                    
 
                     {isEditing &&
                       existingStudentRegistration &&
@@ -2144,7 +2324,7 @@ export default function BookingForm({
               "referral" && (
               <div className="field">
                 <label>
-                  Name of the person who referred you *
+                  Name of the person you referred*
                 </label>
 
                 <input
@@ -2160,6 +2340,14 @@ export default function BookingForm({
                   }
                   placeholder="Enter their name"
                 />
+
+                <div className="booking-referral-note">
+                  You will get a referral discount of{" "}
+                  {" "}
+                  <strong>₱50 OFF</strong>
+                  {" "}
+                  once TheClawLabMNL receives confirmation of your referral's completed appointment.
+                </div>
               </div>
             )}
           </section>
@@ -2589,16 +2777,138 @@ export default function BookingForm({
           font-weight: 600;
         }
 
-        .booking-variation select {
+        .booking-custom-select {
+          position: relative;
           width: 100%;
-          min-height: 35px;
+        }
+
+        .booking-custom-select-trigger {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          width: 100%;
+          min-height: 42px;
+          padding: 9px 12px;
+          border: 1px solid #dfd6d3;
+          border-radius: 10px;
+          background: #fff;
+          color: #2d2727;
+          font-family: inherit;
+          font-size: 12px;
+          font-weight: 600;
+          line-height: 1.3;
+          text-align: left;
+          cursor: pointer;
+          box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+        }
+
+        .booking-custom-select-trigger:hover,
+        .booking-custom-select-trigger.is-open {
+          border-color: #b78f98;
+        }
+
+        .booking-custom-select-trigger.is-open {
+          box-shadow: 0 0 0 3px rgba(183, 143, 152, 0.12);
+        }
+
+        .booking-custom-select-trigger > span:first-child {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .booking-custom-select-chevron {
+          flex: 0 0 auto;
+          color: #8e6971;
+          font-size: 14px;
+          transition: transform 0.18s ease;
+        }
+
+        .booking-custom-select-trigger.is-open
+          .booking-custom-select-chevron {
+          transform: rotate(180deg);
+        }
+
+        .booking-custom-select-menu {
+          position: relative;
+          z-index: 2;
+          display: grid;
+          gap: 4px;
+          width: 100%;
+          max-height: 240px;
+          margin-top: 7px;
+          padding: 6px;
+          overflow-y: auto;
+          border: 1px solid #e2d8d5;
+          border-radius: 12px;
+          background: #fff;
+          box-shadow: 0 10px 24px rgba(62, 43, 47, 0.1);
+          box-sizing: border-box;
+        }
+
+        .booking-custom-select-option {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto auto;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          min-height: 40px;
+          padding: 9px 10px;
+          border: 0;
+          border-radius: 8px;
+          background: transparent;
+          color: #3f3636;
+          font-family: inherit;
+          font-size: 12px;
+          line-height: 1.3;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .booking-custom-select-option:hover {
+          background: #faf4f5;
+        }
+
+        .booking-custom-select-option.is-selected {
+          background: #f7ecef;
+          color: #4d3b3f;
+        }
+
+        .booking-custom-select-option > span:first-child {
+          min-width: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .booking-custom-select-option strong {
+          font-size: 11px;
+          font-weight: 700;
+          white-space: nowrap;
+        }
+
+        .booking-custom-select-check {
+          color: #8e6971;
+          font-size: 12px;
+          font-weight: 700;
         }
 
         .booking-helper {
-          margin-top: 9px;
-          color: #888;
+          width: 100%;
+          box-sizing: border-box;
+          margin: 10px 0 14px;
+          padding: 8px 12px;
+          border: 1px solid #f0cfd3;
+          border-radius: 10px;
+          background: #fbe9eb;
+          color: #766b6b;
           font-size: 10px;
-          line-height: 1.5;
+          line-height: 1.4;
+        }
+
+        .booking-helper a {
+          color: #8f4f59;
+          font-weight: 700;
         }
 
         .booking-helper a,
@@ -2906,6 +3216,72 @@ export default function BookingForm({
           font-size: 10px;
         }
 
+        .booking-discount-upload {
+          margin-top: 2px;
+        }
+
+        .booking-discount-upload input[type="file"] {
+          display: flex;
+          align-items: center;
+          width: 100%;
+          min-height: 44px;
+          margin: 0 0 10px;
+          padding: 8px 10px;
+          border: 0;
+          border-radius: 8px;
+          background: transparent;
+          box-sizing: border-box;
+          line-height: 26px;
+        }
+
+        .booking-discount-upload input[type="file"]::file-selector-button {
+          min-height: 28px;
+          margin: 0 12px 0 0;
+          padding: 4px 10px;
+          border: 1px solid #cfc5c2;
+          border-radius: 6px;
+          background: #fff;
+          color: #333;
+          font-family: inherit;
+          font-size: 11px;
+          line-height: 18px;
+          cursor: pointer;
+        }
+
+        .booking-discount-upload input[type="file"]::-webkit-file-upload-button {
+          min-height: 28px;
+          margin: 0 12px 0 0;
+          padding: 4px 10px;
+          border: 1px solid #cfc5c2;
+          border-radius: 6px;
+          background: #fff;
+          color: #333;
+          font-family: inherit;
+          font-size: 11px;
+          line-height: 18px;
+          cursor: pointer;
+        }
+
+        .booking-discount-upload p {
+          margin-top: 0;
+          overflow-wrap: anywhere;
+        }
+
+        .booking-referral-note {
+          margin-top: 8px;
+          padding: 9px 11px;
+          border: 1px solid #eee4e1;
+          border-radius: 8px;
+          background: #fcfaf9;
+          color: #746868;
+          font-size: 10px;
+          line-height: 1.5;
+        }
+
+        .booking-referral-note strong {
+          color: #4d3b3f;
+        }
+
         .booking-upload p {
           margin: 8px 0 0;
           color: #888;
@@ -3029,6 +3405,34 @@ export default function BookingForm({
         }
 
         @media (max-width: 560px) {
+          .booking-customer-page input,
+          .booking-customer-page select,
+          .booking-customer-page textarea {
+            font-size: 16px !important;
+          }
+
+          .booking-custom-select-trigger {
+            min-height: 46px;
+            font-size: 16px;
+          }
+
+          .booking-custom-select-option {
+            min-height: 44px;
+            font-size: 14px;
+          }
+
+          .booking-upload input[type="file"] {
+            font-size: 16px !important;
+            line-height: 1.4;
+          }
+
+          .booking-discount-upload input[type="file"] {
+            min-height: 48px;
+            margin-bottom: 12px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+          }
+
           .booking-customer-page
             .status-card {
             padding-left: 17px;

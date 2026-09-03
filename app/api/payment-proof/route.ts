@@ -12,6 +12,10 @@ import {
   sanitizeFilename,
 } from "@/lib/utils";
 
+import {
+  notifyPaymentProofSubmitted,
+} from "@/lib/notifications";
+
 const MAX_FILE_SIZE =
   8 * 1024 * 1024;
 
@@ -121,38 +125,22 @@ export async function POST(
     const db =
       supabaseAdmin();
 
+    /*
+     * Load the booking.
+     */
     const {
-  data: booking,
-  error: bookingError,
-} = await db
-  .from("bookings")
-  .select(
-    "id,status,reference_code,customer_name,preferred_date,preferred_time,estimated_total,down_payment"
-  )
-  .eq("access_token", token)
-  .single();
-
-if (bookingError || !booking) {
-  return NextResponse.json(
-    {
-      error: "Booking could not be found.",
-    },
-    {
-      status: 404,
-    }
-  );
-}
-
-if (booking.status !== "approved") {
-  return NextResponse.json(
-    {
-      error: "Payment is not currently available for this booking.",
-    },
-    {
-      status: 400,
-    }
-  );
-}
+      data: booking,
+      error: bookingError,
+    } = await db
+      .from("bookings")
+      .select(
+        "id,status,reference_code,customer_name,preferred_date,preferred_time,estimated_total,down_payment"
+      )
+      .eq(
+        "access_token",
+        token
+      )
+      .single();
 
     if (
       bookingError ||
@@ -161,12 +149,18 @@ if (booking.status !== "approved") {
       return NextResponse.json(
         {
           error:
-            "Booking not found.",
+            "Booking could not be found.",
         },
-        { status: 404 }
+        {
+          status: 404,
+        }
       );
     }
 
+    /*
+     * Only approved bookings can
+     * submit payment.
+     */
     if (
       booking.status !==
       "approved"
@@ -174,15 +168,17 @@ if (booking.status !== "approved") {
       return NextResponse.json(
         {
           error:
-            "This booking is not currently awaiting payment.",
+            "Payment is not currently available for this booking.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
     /*
-     * The actual booking payment is always
-     * the down payment amount.
+     * The actual booking payment is
+     * always the down payment amount.
      */
     const amount =
       Number(
@@ -214,9 +210,9 @@ if (booking.status !== "approved") {
 
     if (
       feeSetting?.value !==
-      null &&
+        null &&
       feeSetting?.value !==
-      undefined
+        undefined
     ) {
       const configuredFee =
         Number(
@@ -248,8 +244,8 @@ if (booking.status !== "approved") {
 
     /*
      * Prevent accidental duplicate
-     * submissions while the booking is
-     * awaiting review.
+     * submissions while the booking
+     * is awaiting review.
      */
     const {
       data: existingPayment,
@@ -288,11 +284,13 @@ if (booking.status !== "approved") {
       )}`;
 
     /*
-     * Upload proof first.
+     * Upload payment proof first.
      */
     const upload =
       await db.storage
-        .from("payment-proofs")
+        .from(
+          "payment-proofs"
+        )
         .upload(
           path,
           await proof.arrayBuffer(),
@@ -333,8 +331,9 @@ if (booking.status !== "approved") {
           net_amount:
             netAmount,
 
-          payment_type: "booking_payment",
-          
+          payment_type:
+            "booking_payment",
+
           status:
             "submitted",
 
@@ -351,7 +350,9 @@ if (booking.status !== "approved") {
       !payment
     ) {
       await db.storage
-        .from("payment-proofs")
+        .from(
+          "payment-proofs"
+        )
         .remove([
           path,
         ])
@@ -398,7 +399,9 @@ if (booking.status !== "approved") {
         );
 
       await db.storage
-        .from("payment-proofs")
+        .from(
+          "payment-proofs"
+        )
         .remove([
           path,
         ])
@@ -411,6 +414,9 @@ if (booking.status !== "approved") {
 
     /*
      * Move booking into payment review.
+     *
+     * Only update if the booking is
+     * still approved.
      */
     const {
       error:
@@ -457,7 +463,9 @@ if (booking.status !== "approved") {
         );
 
       await db.storage
-        .from("payment-proofs")
+        .from(
+          "payment-proofs"
+        )
         .remove([
           path,
         ])
@@ -466,6 +474,48 @@ if (booking.status !== "approved") {
         );
 
       throw bookingUpdateError;
+    }
+
+    /*
+     * PAYMENT SUBMITTED NOTIFICATION
+     *
+     * This runs only after:
+     * 1. Payment record was created
+     * 2. Payment proof was linked
+     * 3. Booking was successfully changed
+     *    from approved -> payment_submitted
+     *
+     * A failed email must NOT make the
+     * customer's payment submission fail.
+     */
+    try {
+      await notifyPaymentProofSubmitted({
+        booking: {
+          id:
+            booking.id,
+
+          reference_code:
+            booking.reference_code,
+
+          customer_name:
+            booking.customer_name,
+
+          preferred_date:
+            booking.preferred_date,
+
+          preferred_time:
+            booking.preferred_time,
+        },
+
+        method,
+
+        amount,
+      });
+    } catch (notificationError) {
+      console.error(
+        "Payment submitted notification failed:",
+        notificationError
+      );
     }
 
     return NextResponse.json({

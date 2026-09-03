@@ -20,6 +20,7 @@ export default async function BookingCalendarPage() {
         status
       `
     )
+    .neq("status", "draft")
     .order("preferred_date", {
       ascending: true,
     })

@@ -36,45 +36,47 @@ type BookingService = {
   duration_minutes: number | null;
 };
 
-type Payment = {
+type Promo = {
   id: string;
-  method: string;
-  amount: number | null;
-  status: string;
-  verified_at?: string | null;
-  created_at?: string | null;
-  payment_type?: string | null;
-  note?: string | null;
+  name: string;
+  description?: string | null;
+  discount_type?: string | null;
+  discount_value?: number | null;
+  active?: boolean | null;
 };
 
 type Booking = {
   id: string;
   reference_code: string | null;
   status: string;
+
   customer_name: string;
+  email?: string;
   mobile_number: string;
   social_handle: string;
+
   preferred_date: string;
   preferred_time: string;
+
   removal: string;
   notes: string;
-  estimated_total: number;
-  down_payment: number;
+
+  promo_name?: string | null;
+  promo_id?: string | null;
+  discount_category?: string | null;
+  referral_name?: string | null;
   discount_verified?: boolean;
   discount_amount?: number;
+
+  estimated_total: number;
+  down_payment: number;
   final_total?: number;
   remaining?: number;
+
   booking_services: BookingService[];
-  payments?: Payment[];
 };
 
 type SelectedServices = Record<string, string>;
-
-type PaymentType =
-  | "balance"
-  | "tip"
-  | "additional_charge"
-  | "other";
 
 type AvailabilityDay = {
   date: string;
@@ -88,8 +90,16 @@ type AvailabilityMonthResponse = {
   days: AvailabilityDay[];
 };
 
+type DiscountChoice =
+  | "none"
+  | "first_time"
+  | "student_pwd_sc"
+  | "referral"
+  | "other_amount"
+  | `promo:${string}`;
+
 function peso(value: number) {
-  return `₱${value.toLocaleString("en-PH", {
+  return `₱${Number(value || 0).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -105,13 +115,9 @@ function formatTime(value: string) {
   }
 
   const suffix = hour >= 12 ? "PM" : "AM";
-  const displayHour =
-    hour % 12 === 0 ? 12 : hour % 12;
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
 
-  return `${displayHour}:${String(minute).padStart(
-    2,
-    "0"
-  )} ${suffix}`;
+  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
 }
 
 function normalizeTime(value: string) {
@@ -124,10 +130,7 @@ function normalizeTime(value: string) {
   if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
     const [hour, minute] = trimmed.split(":");
 
-    return `${String(Number(hour)).padStart(
-      2,
-      "0"
-    )}:${minute}`;
+    return `${String(Number(hour)).padStart(2, "0")}:${minute}`;
   }
 
   const match = trimmed.match(
@@ -150,10 +153,7 @@ function normalizeTime(value: string) {
     hour = 0;
   }
 
-  return `${String(hour).padStart(
-    2,
-    "0"
-  )}:${minute}`;
+  return `${String(hour).padStart(2, "0")}:${minute}`;
 }
 
 function monthKey(date: Date) {
@@ -171,14 +171,9 @@ function dateKey(date: Date) {
 }
 
 function parseDate(value: string) {
-  const [year, month, day] =
-    value.split("-").map(Number);
+  const [year, month, day] = value.split("-").map(Number);
 
-  if (
-    !year ||
-    !month ||
-    !day
-  ) {
+  if (!year || !month || !day) {
     return new Date();
   }
 
@@ -202,11 +197,8 @@ function monthLabel(date: Date) {
 function buildCalendarDays(
   currentMonth: Date
 ) {
-  const year =
-    currentMonth.getFullYear();
-
-  const month =
-    currentMonth.getMonth();
+  const year = currentMonth.getFullYear();
+  const month = currentMonth.getMonth();
 
   const firstDay = new Date(
     year,
@@ -220,15 +212,10 @@ function buildCalendarDays(
     0
   );
 
-  const startOffset =
-    firstDay.getDay();
+  const startOffset = firstDay.getDay();
+  const totalDays = lastDay.getDate();
 
-  const totalDays =
-    lastDay.getDate();
-
-  const cells: Array<
-    Date | null
-  > = [];
+  const cells: Array<Date | null> = [];
 
   for (
     let index = 0;
@@ -252,23 +239,142 @@ function buildCalendarDays(
     );
   }
 
-  while (
-    cells.length % 7 !== 0
-  ) {
+  while (cells.length % 7 !== 0) {
     cells.push(null);
   }
 
   return cells;
 }
 
+function getInitialDiscountChoice(
+  booking: Booking
+): DiscountChoice {
+  if (booking.promo_id) {
+    return `promo:${booking.promo_id}`;
+  }
+
+  const promo = String(
+    booking.promo_name || ""
+  ).toLowerCase();
+
+  if (
+    promo.includes("first-time") ||
+    promo.includes("first time")
+  ) {
+    return "first_time";
+  }
+
+  if (
+    promo.includes("student / pwd / sc")
+  ) {
+    return "student_pwd_sc";
+  }
+
+  if (
+    promo.includes("referral program")
+  ) {
+    return "referral";
+  }
+
+  if (
+    promo.includes("manual discount") ||
+    promo.includes("other amount")
+  ) {
+    return "other_amount";
+  }
+
+  return "none";
+}
+
+function getDiscountLabel(
+  choice: DiscountChoice,
+  promos: Promo[]
+) {
+  if (choice === "none") {
+    return "No Discount";
+  }
+
+  if (choice === "first_time") {
+    return "First-time Booking Discount";
+  }
+
+  if (choice === "student_pwd_sc") {
+    return "Student / PWD / SC Discount";
+  }
+
+  if (choice === "referral") {
+    return "Referral Program";
+  }
+
+  if (choice === "other_amount") {
+    return "Other Amount";
+  }
+
+  if (choice.startsWith("promo:")) {
+    const promoId = choice.slice(6);
+
+    return (
+      promos.find(
+        (promo) =>
+          promo.id === promoId
+      )?.name ||
+      "Current Promo"
+    );
+  }
+
+  return "No Discount";
+}
+
+function calculatePromoDiscount(
+  promo: Promo | undefined,
+  total: number
+) {
+  if (!promo) {
+    return 0;
+  }
+
+  const type = String(
+    promo.discount_type || ""
+  ).toLowerCase();
+
+  const value = Number(
+    promo.discount_value || 0
+  );
+
+  if (
+    !Number.isFinite(value) ||
+    value <= 0
+  ) {
+    return 0;
+  }
+
+  if (
+    type === "percentage" ||
+    type === "percent" ||
+    type === "percent_off"
+  ) {
+    return Math.min(
+      total,
+      total * (value / 100)
+    );
+  }
+
+  return Math.min(
+    total,
+    value
+  );
+}
+
 export default function AdminBookingEditForm({
   booking,
   services,
   removalOptions,
+  promos = [],
 }: {
   booking: Booking;
   services: Service[];
   removalOptions: string[];
+  promos?: Promo[];
 }) {
   const initialSelected = useMemo(() => {
     const result: SelectedServices = {};
@@ -285,82 +391,127 @@ export default function AdminBookingEditForm({
     return result;
   }, [booking.booking_services]);
 
-  const [selected, setSelected] =
-    useState<SelectedServices>(
-      initialSelected
-    );
+  const [
+    selected,
+    setSelected,
+  ] = useState<SelectedServices>(
+    initialSelected
+  );
 
-  const [customerName, setCustomerName] =
-    useState(booking.customer_name);
+  const [
+    customerName,
+    setCustomerName,
+  ] = useState(
+    booking.customer_name
+  );
 
-  const [mobileNumber, setMobileNumber] =
-    useState(booking.mobile_number);
+  const [
+    email,
+    setEmail,
+  ] = useState(
+    booking.email || ""
+  );
 
-  const [socialHandle, setSocialHandle] =
-    useState(
-      booking.social_handle || ""
-    );
+  const [
+    mobileNumber,
+    setMobileNumber,
+  ] = useState(
+    booking.mobile_number
+  );
 
-  const [preferredDate, setPreferredDate] =
-    useState(
-      booking.preferred_date
-    );
+  const [
+    socialHandle,
+    setSocialHandle,
+  ] = useState(
+    booking.social_handle || ""
+  );
 
-  const [preferredTime, setPreferredTime] =
-    useState(
-      normalizeTime(
-        booking.preferred_time?.slice(
-          0,
-          5
-        ) || ""
-      )
-    );
+  const [
+    preferredDate,
+    setPreferredDate,
+  ] = useState(
+    booking.preferred_date
+  );
 
-  const [removal, setRemoval] =
-    useState(
-      booking.removal || ""
-    );
+  const [
+    preferredTime,
+    setPreferredTime,
+  ] = useState(
+    normalizeTime(
+      booking.preferred_time?.slice(
+        0,
+        5
+      ) || ""
+    )
+  );
 
-  const [notes, setNotes] =
-    useState(
-      booking.notes || ""
-    );
+  const [
+    removal,
+    setRemoval,
+  ] = useState(
+    booking.removal || "None"
+  );
 
-  const [paymentType, setPaymentType] =
-    useState<PaymentType>(
-      "additional_charge"
-    );
+  const [
+    notes,
+    setNotes,
+  ] = useState(
+    booking.notes || ""
+  );
 
-  const [paymentMethod, setPaymentMethod] =
-    useState("Cash");
+  const [
+    discountChoice,
+    setDiscountChoice,
+  ] = useState<DiscountChoice>(
+    getInitialDiscountChoice(
+      booking
+    )
+  );
 
-  const [paymentAmount, setPaymentAmount] =
-    useState("");
+  const [
+    discountCategory,
+    setDiscountCategory,
+  ] = useState(
+    booking.discount_category || ""
+  );
 
-  const [paymentNote, setPaymentNote] =
-    useState("");
+  const [
+    referralName,
+    setReferralName,
+  ] = useState(
+    booking.referral_name || ""
+  );
 
-  const [busy, setBusy] =
-    useState(false);
+  const [
+    manualDiscountAmount,
+    setManualDiscountAmount,
+  ] = useState(
+    getInitialDiscountChoice(
+      booking
+    ) === "other_amount"
+      ? String(
+          Number(
+            booking.discount_amount || 0
+          )
+        )
+      : ""
+  );
 
-  const [paymentBusy, setPaymentBusy] =
-    useState(false);
+  const [
+    busy,
+    setBusy,
+  ] = useState(false);
 
-  const [error, setError] =
-    useState("");
+  const [
+    error,
+    setError,
+  ] = useState("");
 
-  const [paymentError, setPaymentError] =
-    useState("");
+  const [
+    saved,
+    setSaved,
+  ] = useState(false);
 
-  const [saved, setSaved] =
-    useState(false);
-
-  const [paymentSaved, setPaymentSaved] =
-    useState(false);
-
-  /*
-   * AVAILABILITY STATE
-   */
   const initialDate = useMemo(
     () =>
       preferredDate
@@ -369,32 +520,37 @@ export default function AdminBookingEditForm({
     []
   );
 
-  const [calendarMonth, setCalendarMonth] =
-    useState(
-      new Date(
-        initialDate.getFullYear(),
-        initialDate.getMonth(),
-        1
-      )
-    );
+  const [
+    calendarMonth,
+    setCalendarMonth,
+  ] = useState(
+    new Date(
+      initialDate.getFullYear(),
+      initialDate.getMonth(),
+      1
+    )
+  );
 
-  const [availabilityDays, setAvailabilityDays] =
-    useState<
-      Record<
-        string,
-        AvailabilityDay
-      >
-    >({});
+  const [
+    availabilityDays,
+    setAvailabilityDays,
+  ] = useState<
+    Record<
+      string,
+      AvailabilityDay
+    >
+  >({});
 
-  const [availabilityLoading, setAvailabilityLoading] =
-    useState(false);
+  const [
+    availabilityLoading,
+    setAvailabilityLoading,
+  ] = useState(false);
 
-  const [availabilityError, setAvailabilityError] =
-    useState("");
+  const [
+    availabilityError,
+    setAvailabilityError,
+  ] = useState("");
 
-  /*
-   * CURRENT SERVICES
-   */
   const selectedItems = useMemo(() => {
     return services
       .filter(
@@ -411,13 +567,18 @@ export default function AdminBookingEditForm({
           );
 
         return {
-          service_id: service.id,
+          service_id:
+            service.id,
+
           service_name:
             service.name,
+
           variation_id:
             variation?.id || null,
+
           variation_name:
             variation?.name || null,
+
           price:
             Number(
               service.price || 0
@@ -426,6 +587,7 @@ export default function AdminBookingEditForm({
               variation?.price_delta ||
                 0
             ),
+
           duration_minutes:
             Number(
               service.duration_minutes ||
@@ -437,14 +599,18 @@ export default function AdminBookingEditForm({
             ),
         };
       });
-  }, [services, selected]);
+  }, [
+    services,
+    selected,
+  ]);
 
-  const total = selectedItems.reduce(
-    (sum, item) =>
-      sum +
-      Number(item.price || 0),
-    0
-  );
+  const total =
+    selectedItems.reduce(
+      (sum, item) =>
+        sum +
+        Number(item.price || 0),
+      0
+    );
 
   const duration = Math.max(
     30,
@@ -459,136 +625,116 @@ export default function AdminBookingEditForm({
     )
   );
 
-  /*
-   * PAYMENT ACCOUNTING
-   */
-  const payments =
-    booking.payments || [];
+  const discountPreview = useMemo(() => {
+    if (discountChoice === "none") {
+      return 0;
+    }
 
-  const verifiedPayments =
-    payments.filter(
-      (payment) =>
-        payment.status ===
-          "verified" ||
-        Boolean(
-          payment.verified_at
-        )
-    );
+    if (
+      discountChoice ===
+        "first_time" ||
+      discountChoice ===
+        "student_pwd_sc"
+    ) {
+      return Number(
+        (
+          total * 0.05
+        ).toFixed(2)
+      );
+    }
 
-  const verifiedDownPayment =
-    verifiedPayments
-      .filter(
-        (payment) =>
-          payment.payment_type ===
-            "down_payment" ||
-          payment.payment_type ===
-            "booking_payment"
-      )
-      .reduce(
-        (sum, payment) =>
-          sum +
-          Number(
-            payment.amount || 0
-          ),
-        0
+    /*
+     * Referral Program is a referral condition,
+     * not an automatic 5% discount.
+     */
+    if (
+      discountChoice === "referral"
+    ) {
+      return 0;
+    }
+
+    if (
+      discountChoice ===
+        "other_amount"
+    ) {
+      const amount = Number(
+        manualDiscountAmount || 0
       );
 
-  const verifiedBalancePayments =
-    verifiedPayments
-      .filter(
-        (payment) =>
-          payment.payment_type ===
-          "balance"
-      )
-      .reduce(
-        (sum, payment) =>
-          sum +
-          Number(
-            payment.amount || 0
-          ),
-        0
+      if (
+        !Number.isFinite(amount) ||
+        amount <= 0
+      ) {
+        return 0;
+      }
+
+      return Number(
+        Math.min(
+          total,
+          amount
+        ).toFixed(2)
       );
+    }
 
-  /*
-   * DISCOUNT
-   *
-   * Recalculate the 5% discount from the
-   * CURRENT service total.
-   *
-   * This is important when:
-   * - a service is changed
-   * - a service is added
-   * - a service is removed
-   * - a variation changes the price
-   */
-  const discountAmount =
-    booking.discount_verified
-      ? Number(
-          (
-            total * 0.05
-          ).toFixed(2)
-        )
-      : 0;
+    if (
+      discountChoice.startsWith(
+        "promo:"
+      )
+    ) {
+      const promoId =
+        discountChoice.slice(6);
 
-  /*
-   * FINAL TOTAL
-   */
-  const currentFinalTotal =
+      const promo =
+        promos.find(
+          (item) =>
+            item.id ===
+            promoId
+        );
+
+      return Number(
+        calculatePromoDiscount(
+          promo,
+          total
+        ).toFixed(2)
+      );
+    }
+
+    return 0;
+  }, [
+    discountChoice,
+    manualDiscountAmount,
+    total,
+    promos,
+  ]);
+
+  const finalTotal =
     Math.max(
       0,
       Number(
         (
           total -
-          discountAmount
+          discountPreview
         ).toFixed(2)
       )
     );
 
-  /*
-   * REMAINING
-   */
-  const currentRemaining =
-    Math.max(
-      0,
-      Number(
-        (
-          currentFinalTotal -
-          verifiedDownPayment -
-          verifiedBalancePayments
-        ).toFixed(2)
-      )
+  const calendarDays =
+    useMemo(
+      () =>
+        buildCalendarDays(
+          calendarMonth
+        ),
+      [calendarMonth]
     );
 
-  /*
-   * Keep the balance payment amount synced
-   * with the current remaining amount.
-   *
-   * This means changing services immediately
-   * updates the amount shown when Balance
-   * Payment is selected.
-   */
-  useEffect(() => {
-    if (
-      paymentType !== "balance" ||
-      paymentBusy
-    ) {
-      return;
-    }
+  const selectedDay =
+    availabilityDays[
+      preferredDate
+    ];
 
-    setPaymentAmount(
-      currentRemaining > 0
-        ? currentRemaining.toFixed(2)
-        : ""
-    );
-  }, [
-    paymentType,
-    currentRemaining,
-    paymentBusy,
-  ]);
+  const availableSlots =
+    selectedDay?.slots || [];
 
-  /*
-   * LOAD MONTHLY AVAILABILITY
-   */
   useEffect(() => {
     let cancelled = false;
 
@@ -596,6 +742,7 @@ export default function AdminBookingEditForm({
       setAvailabilityLoading(
         true
       );
+
       setAvailabilityError("");
 
       try {
@@ -612,13 +759,6 @@ export default function AdminBookingEditForm({
           String(duration)
         );
 
-        /*
-         * Tell the availability endpoint which
-         * booking is currently being edited.
-         *
-         * The backend can exclude this booking
-         * from overlap calculations.
-         */
         params.set(
           "exclude_booking_id",
           booking.id
@@ -628,7 +768,8 @@ export default function AdminBookingEditForm({
           await fetch(
             `/api/availability?${params.toString()}`,
             {
-              cache: "no-store",
+              cache:
+                "no-store",
             }
           );
 
@@ -661,10 +802,12 @@ export default function AdminBookingEditForm({
         days.forEach((day) => {
           mapped[day.date] = {
             date: day.date,
+
             available:
               Boolean(
                 day.available
               ),
+
             slots:
               Array.isArray(
                 day.slots
@@ -676,11 +819,6 @@ export default function AdminBookingEditForm({
           };
         });
 
-        /*
-         * Make sure the current booking remains
-         * selectable even if an older backend
-         * does not yet support exclude_booking_id.
-         */
         if (
           booking.preferred_date &&
           booking.preferred_time
@@ -752,24 +890,6 @@ export default function AdminBookingEditForm({
     booking.preferred_time,
   ]);
 
-  /*
-   * SELECTED DATE AVAILABILITY
-   */
-  const selectedDay =
-    availabilityDays[
-      preferredDate
-    ];
-
-  const availableSlots =
-    selectedDay?.slots || [];
-
-  /*
-   * If services change and the current time
-   * becomes unavailable, clear it.
-   *
-   * Do not clear the current booking's original
-   * time while it is still valid for this edit.
-   */
   useEffect(() => {
     if (
       !preferredDate ||
@@ -804,42 +924,31 @@ export default function AdminBookingEditForm({
     availabilityLoading,
   ]);
 
-  const calendarDays =
-    useMemo(
-      () =>
-        buildCalendarDays(
-          calendarMonth
-        ),
-      [calendarMonth]
-    );
-
-  const previousMonth = () => {
+  function previousMonth() {
     setCalendarMonth(
       (current) =>
         new Date(
           current.getFullYear(),
-          current.getMonth() -
-            1,
+          current.getMonth() - 1,
           1
         )
     );
-  };
+  }
 
-  const nextMonth = () => {
+  function nextMonth() {
     setCalendarMonth(
       (current) =>
         new Date(
           current.getFullYear(),
-          current.getMonth() +
-            1,
+          current.getMonth() + 1,
           1
         )
     );
-  };
+  }
 
-  const selectDate = (
+  function selectDate(
     value: string
-  ) => {
+  ) {
     const day =
       availabilityDays[value];
 
@@ -870,63 +979,135 @@ export default function AdminBookingEditForm({
     } else {
       setPreferredTime("");
     }
-  };
+  }
 
-  const selectTime = (
+  function selectTime(
     value: string
-  ) => {
+  ) {
     setPreferredTime(
       normalizeTime(value)
     );
-  };
+  }
 
-  const toggleService = (
-    serviceId: string
-  ) => {
+  function toggleService(
+    service: Service
+  ) {
     setSelected((current) => {
       const next = {
         ...current,
       };
 
       if (
-        next[serviceId] !==
+        next[service.id] !==
         undefined
       ) {
-        delete next[serviceId];
+        delete next[service.id];
       } else {
-        next[serviceId] = "";
+        const variations =
+          (
+            service.service_variations ||
+            []
+          )
+            .filter(
+              (variation) =>
+                variation.active
+            )
+            .sort(
+              (a, b) =>
+                Number(
+                  a.sort_order || 0
+                ) -
+                Number(
+                  b.sort_order || 0
+                )
+            );
+
+        next[service.id] =
+          variations[0]?.id || "";
       }
 
       return next;
     });
-  };
 
-  const updateVariation = (
+    setPreferredTime("");
+  }
+
+  function updateVariation(
     serviceId: string,
     variationId: string
-  ) => {
+  ) {
     setSelected((current) => ({
       ...current,
       [serviceId]:
         variationId,
     }));
-  };
 
-  const save = async () => {
+    setPreferredTime("");
+  }
+
+  function handleDiscountChange(
+    value: string
+  ) {
+    const next =
+      value as DiscountChoice;
+
+    setDiscountChoice(next);
+
+    if (
+      next !==
+      "student_pwd_sc"
+    ) {
+      setDiscountCategory("");
+    }
+
+    if (
+      next !== "referral"
+    ) {
+      setReferralName("");
+    }
+  }
+
+  async function save() {
     setError("");
     setSaved(false);
 
-    if (!customerName.trim()) {
+    if (
+      !customerName.trim()
+    ) {
       setError(
         "Customer name is required."
       );
+
       return;
     }
 
-    if (!mobileNumber.trim()) {
+    if (!email.trim()) {
+      setError(
+        "Email is required."
+      );
+
+      return;
+    }
+
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        email.trim()
+      )
+    ) {
+      setError(
+        "Enter a valid email address."
+      );
+
+      return;
+    }
+
+    if (
+      !mobileNumber.trim()
+    ) {
       setError(
         "Mobile number is required."
       );
+
       return;
     }
 
@@ -934,6 +1115,7 @@ export default function AdminBookingEditForm({
       setError(
         "Appointment date is required."
       );
+
       return;
     }
 
@@ -941,24 +1123,90 @@ export default function AdminBookingEditForm({
       setError(
         "Appointment time is required."
       );
+
       return;
     }
 
-    if (!selectedItems.length) {
+    if (
+      !selectedItems.length
+    ) {
       setError(
         "Please select at least one service."
       );
+
       return;
     }
 
-    const selectedDay =
+    if (
+      discountChoice ===
+        "student_pwd_sc" &&
+      ![
+        "student",
+        "pwd",
+        "senior_citizen",
+      ].includes(
+        discountCategory
+      )
+    ) {
+      setError(
+        "Select whether the discount is for a Student, PWD, or Senior Citizen."
+      );
+
+      return;
+    }
+
+    if (
+      discountChoice ===
+        "referral" &&
+      !referralName.trim()
+    ) {
+      setError(
+        "Enter the name of the person who referred the client."
+      );
+
+      return;
+    }
+
+    if (
+      discountChoice ===
+        "other_amount"
+    ) {
+      const manualAmount = Number(
+        manualDiscountAmount
+      );
+
+      if (
+        !Number.isFinite(
+          manualAmount
+        ) ||
+        manualAmount <= 0
+      ) {
+        setError(
+          "Enter a valid manual discount amount."
+        );
+
+        return;
+      }
+
+      if (
+        manualAmount > total
+      ) {
+        setError(
+          "The discount amount cannot be greater than the booking total."
+        );
+
+        return;
+      }
+    }
+
+    const day =
       availabilityDays[
         preferredDate
       ];
 
     if (
-      selectedDay &&
-      !selectedDay.slots.includes(
+      day &&
+      !day.slots.includes(
         normalizeTime(
           preferredTime
         )
@@ -967,6 +1215,7 @@ export default function AdminBookingEditForm({
       setError(
         "That appointment time is no longer available. Please choose another time."
       );
+
       return;
     }
 
@@ -977,41 +1226,76 @@ export default function AdminBookingEditForm({
         await fetch(
           "/api/admin/bookings",
           {
-            method: "PATCH",
+            method:
+              "PATCH",
+
             headers: {
               "content-type":
                 "application/json",
             },
-            body: JSON.stringify({
-              action: "edit",
-              id: booking.id,
 
-              customer_name:
-                customerName.trim(),
+            body:
+              JSON.stringify({
+                action:
+                  "edit",
 
-              mobile_number:
-                mobileNumber.trim(),
+                id:
+                  booking.id,
 
-              social_handle:
-                socialHandle.trim(),
+                customer_name:
+                  customerName.trim(),
 
-              preferred_date:
-                preferredDate,
+                email:
+                  email
+                    .trim()
+                    .toLowerCase(),
 
-              preferred_time:
-                normalizeTime(
-                  preferredTime
-                ),
+                mobile_number:
+                  mobileNumber.trim(),
 
-              removal:
-                removal.trim(),
+                social_handle:
+                  socialHandle.trim(),
 
-              notes:
-                notes.trim(),
+                preferred_date:
+                  preferredDate,
 
-              services:
-                selectedItems,
-            }),
+                preferred_time:
+                  normalizeTime(
+                    preferredTime
+                  ),
+
+                removal:
+                  removal.trim(),
+
+                notes:
+                  notes.trim(),
+
+                promo_choice:
+                  discountChoice,
+
+                discount_category:
+                  discountChoice ===
+                  "student_pwd_sc"
+                    ? discountCategory
+                    : null,
+
+                referral_name:
+                  discountChoice ===
+                  "referral"
+                    ? referralName.trim()
+                    : null,
+
+                manual_discount_amount:
+                  discountChoice ===
+                  "other_amount"
+                    ? Number(
+                        manualDiscountAmount
+                      )
+                    : null,
+
+                services:
+                  selectedItems,
+              }),
           }
         );
 
@@ -1027,10 +1311,13 @@ export default function AdminBookingEditForm({
 
       setSaved(true);
 
-      window.setTimeout(() => {
-        window.location.href =
-          `/admin/bookings/${booking.id}`;
-      }, 700);
+      window.setTimeout(
+        () => {
+          window.location.href =
+            `/admin/bookings/${booking.id}`;
+        },
+        700
+      );
     } catch (err: any) {
       setError(
         err?.message ||
@@ -1039,676 +1326,386 @@ export default function AdminBookingEditForm({
     } finally {
       setBusy(false);
     }
-  };
+  }
 
-  const recordPayment = async () => {
-    setPaymentError("");
-    setPaymentSaved(false);
-
-    let amount =
-      Number(paymentAmount);
-
-    if (
-      paymentType === "balance" &&
-      (!Number.isFinite(amount) ||
-        amount <= 0)
-    ) {
-      amount =
-        currentRemaining;
-    }
-
-    if (
-      !Number.isFinite(amount) ||
-      amount <= 0
-    ) {
-      setPaymentError(
-        "Enter a valid payment amount."
-      );
-      return;
-    }
-
-    if (
-      paymentType === "balance" &&
-      amount >
-        currentRemaining
-    ) {
-      setPaymentError(
-        `Balance payment cannot exceed the current remaining balance of ${peso(
-          currentRemaining
-        )}.`
-      );
-      return;
-    }
-
-    setPaymentBusy(true);
-
-    try {
-      const response =
-        await fetch(
-          "/api/admin/payments",
-          {
-            method: "PATCH",
-            headers: {
-              "content-type":
-                "application/json",
-            },
-            body: JSON.stringify({
-              action: "record",
-              booking_id:
-                booking.id,
-              payment_type:
-                paymentType,
-              method:
-                paymentMethod,
-              amount,
-              note:
-                paymentNote.trim(),
-            }),
-          }
-        );
-
-      const result =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          result.error ||
-            "Unable to record payment."
-        );
-      }
-
-      setPaymentAmount("");
-      setPaymentNote("");
-      setPaymentSaved(true);
-
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 600);
-    } catch (err: any) {
-      setPaymentError(
-        err?.message ||
-          "Unable to record payment."
-      );
-    } finally {
-      setPaymentBusy(false);
-    }
-  };
-
-  const cancel = () => {
+  function cancel() {
     window.location.href =
       `/admin/bookings/${booking.id}`;
-  };
+  }
 
   return (
-    <div
-      style={{
-        width: "100%",
-        maxWidth: 860,
-        margin: "0 auto",
-      }}
-    >
-      <div
-        style={{
-          display: "grid",
-          gap: 18,
-        }}
-      >
-        {/* CUSTOMER DETAILS */}
-        <section
-          className="card"
-          style={{
-            padding: 24,
-          }}
-        >
-          <div className="kicker">
-            Customer
+    <div className="abe-page">
+      <section className="abe-card">
+        <div className="abe-kicker">
+          Customer
+        </div>
+
+        <h2>
+          Customer Details
+        </h2>
+
+        <div className="abe-fields">
+          <div className="field">
+            <label>
+              Name *
+            </label>
+
+            <input
+              value={
+                customerName
+              }
+              disabled={busy}
+              onChange={(
+                event
+              ) =>
+                setCustomerName(
+                  event.target
+                    .value
+                )
+              }
+            />
           </div>
 
-          <h2
-            className="serif"
-            style={{
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            Customer details
-          </h2>
+          <div className="field">
+            <label>
+              Email *
+            </label>
 
-          <div
-            style={{
-              display: "grid",
-              gap: 14,
-              marginTop: 20,
-            }}
-          >
-            <div className="field">
-              <label>Name *</label>
-
-              <input
-                value={customerName}
-                disabled={busy}
-                onChange={(event) =>
-                  setCustomerName(
-                    event.target.value
-                  )
-                }
-              />
-            </div>
-
-            <div className="field">
-              <label>
-                Mobile number *
-              </label>
-
-              <input
-                inputMode="tel"
-                value={mobileNumber}
-                disabled={busy}
-                onChange={(event) =>
-                  setMobileNumber(
-                    event.target.value
-                  )
-                }
-              />
-            </div>
-
-            <div className="field">
-              <label>
-                IG or Messenger handle
-              </label>
-
-              <input
-                value={socialHandle}
-                disabled={busy}
-                onChange={(event) =>
-                  setSocialHandle(
-                    event.target.value
-                  )
-                }
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* APPOINTMENT */}
-        <section
-          className="card"
-          style={{
-            padding: 24,
-          }}
-        >
-          <div className="kicker">
-            Appointment
+            <input
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={email}
+              disabled={busy}
+              onChange={(
+                event
+              ) =>
+                setEmail(
+                  event.target
+                    .value
+                )
+              }
+            />
           </div>
 
-          <h2
-            className="serif"
-            style={{
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            Choose appointment
-          </h2>
+          <div className="field">
+            <label>
+              Mobile Number *
+            </label>
 
-          <div
-            style={{
-              marginTop: 18,
-              padding: 14,
-              border:
-                "1px solid var(--line)",
-              borderRadius: 14,
-              background:
-                "rgba(0,0,0,0.015)",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                alignItems:
-                  "center",
-                gap: 12,
-              }}
+            <input
+              inputMode="tel"
+              value={
+                mobileNumber
+              }
+              disabled={busy}
+              onChange={(
+                event
+              ) =>
+                setMobileNumber(
+                  event.target
+                    .value
+                )
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label>
+              IG or Messenger
+              Handle
+            </label>
+
+            <input
+              value={
+                socialHandle
+              }
+              disabled={busy}
+              onChange={(
+                event
+              ) =>
+                setSocialHandle(
+                  event.target
+                    .value
+                )
+              }
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="abe-card">
+        <div className="abe-kicker">
+          Appointment
+        </div>
+
+        <h2>
+          Appointment Details
+        </h2>
+
+        <div className="abe-calendar">
+          <div className="abe-calendar-head">
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={
+                busy ||
+                availabilityLoading
+              }
+              onClick={
+                previousMonth
+              }
             >
-              <button
-                type="button"
-                className="btn secondary"
-                disabled={
-                  busy ||
-                  availabilityLoading
-                }
-                onClick={
-                  previousMonth
-                }
-                style={{
-                  minWidth: 42,
-                  padding:
-                    "8px 12px",
-                }}
-              >
-                ←
-              </button>
+              ←
+            </button>
 
-              <strong
-                style={{
-                  fontSize: 16,
-                }}
-              >
-                {monthLabel(
-                  calendarMonth
-                )}
-              </strong>
+            <strong>
+              {monthLabel(
+                calendarMonth
+              )}
+            </strong>
 
-              <button
-                type="button"
-                className="btn secondary"
-                disabled={
-                  busy ||
-                  availabilityLoading
-                }
-                onClick={nextMonth}
-                style={{
-                  minWidth: 42,
-                  padding:
-                    "8px 12px",
-                }}
-              >
-                →
-              </button>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(7, minmax(0, 1fr))",
-                gap: 5,
-                marginTop: 14,
-              }}
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={
+                busy ||
+                availabilityLoading
+              }
+              onClick={
+                nextMonth
+              }
             >
-              {[
-                "Sun",
-                "Mon",
-                "Tue",
-                "Wed",
-                "Thu",
-                "Fri",
-                "Sat",
-              ].map((day) => (
+              →
+            </button>
+          </div>
+
+          <div className="abe-week">
+            {[
+              "Sun",
+              "Mon",
+              "Tue",
+              "Wed",
+              "Thu",
+              "Fri",
+              "Sat",
+            ].map(
+              (day) => (
                 <div
                   key={day}
-                  className="muted"
-                  style={{
-                    textAlign:
-                      "center",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding:
-                      "5px 0",
-                  }}
                 >
                   {day}
                 </div>
-              ))}
+              )
+            )}
+          </div>
 
-              {calendarDays.map(
-                (date, index) => {
-                  if (!date) {
-                    return (
-                      <div
-                        key={`empty-${index}`}
-                        style={{
-                          minHeight: 48,
-                        }}
-                      />
-                    );
-                  }
-
-                  const key =
-                    dateKey(date);
-
-                  const availability =
-                    availabilityDays[
-                      key
-                    ];
-
-                  const isSelected =
-                    key ===
-                    preferredDate;
-
-                  const isCurrentBooking =
-                    key ===
-                    booking.preferred_date;
-
-                  const isAvailable =
-                    Boolean(
-                      availability?.available
-                    ) ||
-                    isCurrentBooking;
-
+          <div className="abe-days">
+            {calendarDays.map(
+              (
+                date,
+                index
+              ) => {
+                if (!date) {
                   return (
-                    <button
-                      key={key}
-                      type="button"
-                      disabled={
-                        busy ||
-                        availabilityLoading ||
-                        !isAvailable
-                      }
-                      onClick={() =>
-                        selectDate(key)
-                      }
-                      style={{
-                        minHeight: 48,
-                        borderRadius: 10,
-                        border:
-                          isSelected
-                            ? "2px solid currentColor"
-                            : "1px solid var(--line)",
-                        background:
-                          isSelected
-                            ? "rgba(0,0,0,0.08)"
-                            : isAvailable
-                            ? "white"
-                            : "rgba(0,0,0,0.025)",
-                        color:
-                          isAvailable
-                            ? "inherit"
-                            : "var(--muted)",
-                        cursor:
-                          isAvailable
-                            ? "pointer"
-                            : "not-allowed",
-                        opacity:
-                          isAvailable
-                            ? 1
-                            : 0.48,
-                        padding:
-                          "6px 3px",
-                        position:
-                          "relative",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontWeight:
-                            isSelected
-                              ? 700
-                              : 500,
-                          fontSize: 14,
-                        }}
-                      >
-                        {date.getDate()}
-                      </div>
-
-                      {isAvailable && (
-                        <div
-                          style={{
-                            width: 5,
-                            height: 5,
-                            borderRadius:
-                              "50%",
-                            background:
-                              "currentColor",
-                            margin:
-                              "4px auto 0",
-                            opacity: 0.65,
-                          }}
-                        />
-                      )}
-                    </button>
+                    <div
+                      key={`empty-${index}`}
+                      className="abe-day-empty"
+                    />
                   );
                 }
-              )}
-            </div>
 
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 14,
-                marginTop: 14,
-                fontSize: 12,
-              }}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems:
-                    "center",
-                  gap: 6,
-                }}
-              >
-                <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius:
-                      "50%",
-                    background:
-                      "currentColor",
-                  }}
-                />
-                Available
-              </span>
+                const key =
+                  dateKey(
+                    date
+                  );
 
-              <span
-                className="muted"
-              >
-                Unavailable dates are
-                disabled.
-              </span>
-            </div>
-          </div>
+                const availability =
+                  availabilityDays[
+                    key
+                  ];
 
-          {availabilityLoading && (
-            <div
-              className="notice"
-              style={{
-                marginTop: 14,
-              }}
-            >
-              Checking availability…
-            </div>
-          )}
+                const isSelected =
+                  key ===
+                  preferredDate;
 
-          {availabilityError && (
-            <div
-              className="notice"
-              style={{
-                marginTop: 14,
-                borderColor:
-                  "rgba(160, 70, 70, 0.35)",
-              }}
-            >
-              {availabilityError}
-            </div>
-          )}
+                const isCurrent =
+                  key ===
+                  booking.preferred_date;
 
-          {preferredDate && (
-            <div
-              style={{
-                marginTop: 18,
-              }}
-            >
-              <div
-                className="field"
-              >
-                <label>
-                  Available times *
-                </label>
+                const isAvailable =
+                  Boolean(
+                    availability?.available
+                  ) ||
+                  isCurrent;
 
-                {availableSlots.length >
-                0 ? (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns:
-                        "repeat(auto-fill, minmax(110px, 1fr))",
-                      gap: 8,
-                      marginTop: 8,
-                    }}
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`abe-day ${
+                      isAvailable
+                        ? "available"
+                        : "unavailable"
+                    } ${
+                      isCurrent
+                        ? "current"
+                        : ""
+                    } ${
+                      isSelected
+                        ? "selected"
+                        : ""
+                    }`}
+                    disabled={
+                      busy ||
+                      availabilityLoading ||
+                      !isAvailable
+                    }
+                    onClick={() =>
+                      selectDate(
+                        key
+                      )
+                    }
                   >
-                    {availableSlots.map(
-                      (slot) => {
-                        const normalized =
-                          normalizeTime(
-                            slot
-                          );
+                    {date.getDate()}
 
-                        const selectedTime =
-                          normalizeTime(
-                            preferredTime
-                          );
-
-                        const active =
-                          normalized ===
-                          selectedTime;
-
-                        return (
-                          <button
-                            key={
-                              normalized
-                            }
-                            type="button"
-                            disabled={
-                              busy ||
-                              availabilityLoading
-                            }
-                            onClick={() =>
-                              selectTime(
-                                normalized
-                              )
-                            }
-                            style={{
-                              border:
-                                active
-                                  ? "2px solid currentColor"
-                                  : "1px solid var(--line)",
-                              background:
-                                active
-                                  ? "rgba(0,0,0,0.08)"
-                                  : "white",
-                              borderRadius: 10,
-                              padding:
-                                "10px 8px",
-                              fontWeight:
-                                active
-                                  ? 700
-                                  : 500,
-                              cursor:
-                                "pointer",
-                            }}
-                          >
-                            {formatTime(
-                              normalized
-                            )}
-                          </button>
-                        );
-                      }
+                    {isAvailable && (
+                      <span className="abe-dot" />
                     )}
-                  </div>
-                ) : (
-                  <div
-                    className="notice"
-                    style={{
-                      marginTop: 8,
-                    }}
-                  >
-                    No available times
-                    for this date.
-                    Please choose another
-                    date.
-                  </div>
+                  </button>
+                );
+              }
+            )}
+          </div>
+        </div>
+
+        {availabilityLoading && (
+          <div className="notice abe-notice">
+            Checking
+            availability…
+          </div>
+        )}
+
+        {availabilityError && (
+          <div className="notice abe-notice">
+            {availabilityError}
+          </div>
+        )}
+
+        {preferredDate && (
+          <div className="abe-times">
+            <label>
+              Available Times *
+            </label>
+
+            {availableSlots.length >
+            0 ? (
+              <div className="abe-time-grid">
+                {availableSlots.map(
+                  (slot) => {
+                    const normalized =
+                      normalizeTime(
+                        slot
+                      );
+
+                    const active =
+                      normalized ===
+                      normalizeTime(
+                        preferredTime
+                      );
+
+                    return (
+                      <button
+                        key={
+                          normalized
+                        }
+                        type="button"
+                        className={`abe-time ${
+                          active
+                            ? "selected"
+                            : ""
+                        }`}
+                        disabled={
+                          busy ||
+                          availabilityLoading
+                        }
+                        onClick={() =>
+                          selectTime(
+                            normalized
+                          )
+                        }
+                      >
+                        {formatTime(
+                          normalized
+                        )}
+                      </button>
+                    );
+                  }
                 )}
               </div>
-            </div>
-          )}
-
-          {preferredDate &&
-            preferredTime && (
-              <div
-                style={{
-                  marginTop: 16,
-                  padding: 14,
-                  border:
-                    "1px solid var(--line)",
-                  borderRadius: 12,
-                  display: "grid",
-                  gap: 5,
-                }}
-              >
-                <span className="muted">
-                  Selected appointment
-                </span>
-
-                <strong>
-                  {parseDate(
-                    preferredDate
-                  ).toLocaleDateString(
-                    "en-PH",
-                    {
-                      weekday:
-                        "long",
-                      month:
-                        "long",
-                      day: "numeric",
-                      year:
-                        "numeric",
-                    }
-                  )}
-                </strong>
-
-                <strong>
-                  {formatTime(
-                    preferredTime
-                  )}
-                </strong>
-
-                <span
-                  className="muted"
-                  style={{
-                    fontSize: 13,
-                  }}
-                >
-                  Estimated duration:{" "}
-                  {duration} minutes
-                </span>
+            ) : (
+              <div className="notice">
+                No available
+                times for this
+                date.
               </div>
             )}
-        </section>
-
-        {/* SERVICES */}
-        <section
-          className="card"
-          style={{
-            padding: 24,
-          }}
-        >
-          <div className="kicker">
-            Services
           </div>
+        )}
 
-          <h2
-            className="serif"
-            style={{
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            Services and variations
-          </h2>
+        {preferredDate &&
+          preferredTime && (
+            <div className="abe-selection">
+              <span>
+                Selected
+                Appointment
+              </span>
 
-          <div
-            style={{
-              display: "grid",
-              gap: 10,
-              marginTop: 20,
-            }}
-          >
-            {services.map((service) => {
+              <strong>
+                {parseDate(
+                  preferredDate
+                ).toLocaleDateString(
+                  "en-PH",
+                  {
+                    weekday:
+                      "long",
+                    month:
+                      "long",
+                    day:
+                      "numeric",
+                    year:
+                      "numeric",
+                  }
+                )}
+              </strong>
+
+              <strong>
+                {formatTime(
+                  preferredTime
+                )}
+              </strong>
+
+              <span>
+                Estimated
+                duration:{" "}
+                {duration} minutes
+              </span>
+            </div>
+          )}
+      </section>
+
+      <section className="abe-card">
+        <div className="abe-kicker">
+          Services
+        </div>
+
+        <h2>
+          Services & Variations
+        </h2>
+
+        <div className="abe-services">
+          {services.map(
+            (service) => {
               const checked =
                 selected[
                   service.id
@@ -1720,7 +1717,9 @@ export default function AdminBookingEditForm({
                   []
                 )
                   .filter(
-                    (variation) =>
+                    (
+                      variation
+                    ) =>
                       variation.active
                   )
                   .sort(
@@ -1737,28 +1736,12 @@ export default function AdminBookingEditForm({
 
               return (
                 <div
-                  key={service.id}
-                  style={{
-                    border:
-                      "1px solid var(--line)",
-                    borderRadius: 14,
-                    padding: 15,
-                  }}
+                  key={
+                    service.id
+                  }
+                  className="abe-service"
                 >
-                  <label
-                    style={{
-                      display:
-                        "flex",
-                      gap: 11,
-                      alignItems:
-                        "flex-start",
-                      margin: 0,
-                      cursor:
-                        busy
-                          ? "default"
-                          : "pointer",
-                    }}
-                  >
+                  <label className="abe-service-main">
                     <input
                       type="checkbox"
                       checked={
@@ -1769,22 +1752,12 @@ export default function AdminBookingEditForm({
                       }
                       onChange={() =>
                         toggleService(
-                          service.id
+                          service
                         )
                       }
-                      style={{
-                        marginTop: 3,
-                        flex:
-                          "0 0 auto",
-                      }}
                     />
 
-                    <span
-                      style={{
-                        minWidth: 0,
-                        flex: 1,
-                      }}
-                    >
+                    <span>
                       <strong>
                         {
                           service.name
@@ -1792,48 +1765,28 @@ export default function AdminBookingEditForm({
                       </strong>
 
                       {service.description && (
-                        <div
-                          className="muted"
-                          style={{
-                            marginTop: 4,
-                            lineHeight:
-                              1.5,
-                          }}
-                        >
+                        <small>
                           {
                             service.description
                           }
-                        </div>
+                        </small>
                       )}
 
-                      <div
-                        className="muted"
-                        style={{
-                          marginTop: 5,
-                          fontSize: 13,
-                        }}
-                      >
+                      <small>
                         {peso(
                           Number(
                             service.price ||
                               0
                           )
                         )}
-                      </div>
+                      </small>
                     </span>
                   </label>
 
                   {checked &&
                     variations.length >
                       0 && (
-                      <div
-                        className="field"
-                        style={{
-                          marginTop: 12,
-                          marginBottom: 0,
-                          marginLeft: 29,
-                        }}
-                      >
+                      <div className="field abe-variation">
                         <label>
                           Variation
                         </label>
@@ -1858,10 +1811,6 @@ export default function AdminBookingEditForm({
                             )
                           }
                         >
-                          <option value="">
-                            Standard
-                          </option>
-
                           {variations.map(
                             (
                               variation
@@ -1901,591 +1850,830 @@ export default function AdminBookingEditForm({
                     )}
                 </div>
               );
-            })}
+            }
+          )}
+        </div>
+
+        <div className="abe-summary">
+          <div>
+            <span>
+              Services Total
+            </span>
+
+            <strong>
+              {peso(total)}
+            </strong>
           </div>
 
-          <div
-            style={{
-              marginTop: 20,
-              paddingTop: 18,
-              borderTop:
-                "1px solid var(--line)",
-              display: "grid",
-              gap: 8,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-              }}
-            >
-              <span className="muted">
-                Services total
-              </span>
+          <div>
+            <span>
+              Estimated
+              Duration
+            </span>
 
-              <strong>
-                {peso(total)}
-              </strong>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-              }}
-            >
-              <span className="muted">
-                Estimated duration
-              </span>
-
-              <strong>
-                {duration} min
-              </strong>
-            </div>
+            <strong>
+              {duration} min
+            </strong>
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* REMOVAL */}
-        <section
-          className="card"
-          style={{
-            padding: 24,
-          }}
-        >
-          <div className="kicker">
-            Removal
-          </div>
+      <section className="abe-card">
+        <div className="abe-kicker">
+          Discount
+        </div>
 
-          <h2
-            className="serif"
-            style={{
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            Removal
-          </h2>
+        <h2>
+          Discount & Conditions
+        </h2>
 
-          <div
-            className="field"
-            style={{
-              marginTop: 20,
-            }}
-          >
+        <p className="abe-muted">
+          Admin override. Any
+          discount selected here
+          is applied immediately
+          when the booking is
+          saved. No separate
+          approval is required.
+        </p>
+
+        <div className="abe-fields">
+          <div className="field">
+            <label>
+              Promo / Discount
+            </label>
+
             <select
-              value={removal}
+              value={
+                discountChoice
+              }
               disabled={busy}
-              onChange={(event) =>
-                setRemoval(
-                  event.target.value
+              onChange={(
+                event
+              ) =>
+                handleDiscountChange(
+                  event.target
+                    .value
                 )
               }
             >
-              {removalOptions.map(
-                (option) => (
-                  <option
-                    key={option}
-                    value={option}
-                  >
-                    {option}
-                  </option>
+              <option value="none">
+                Not Applicable
+              </option>
+
+              <option value="first_time">
+                First-time
+                Booking Discount
+                — 5%
+              </option>
+
+              <option value="student_pwd_sc">
+                Student / PWD /
+                SC Discount — 5%
+              </option>
+
+              <option value="referral">
+                Referral Program
+              </option>
+
+              <option value="other_amount">
+                Other Amount
+              </option>
+
+              {promos
+                .filter(
+                  (promo) =>
+                    promo.active !==
+                    false
                 )
-              )}
+                .map(
+                  (promo) => (
+                    <option
+                      key={
+                        promo.id
+                      }
+                      value={`promo:${promo.id}`}
+                    >
+                      {promo.name}
+                    </option>
+                  )
+                )}
             </select>
           </div>
-        </section>
 
-        {/* NOTES */}
-        <section
-          className="card"
-          style={{
-            padding: 24,
-          }}
-        >
-          <div className="kicker">
-            Notes
-          </div>
-
-          <h2
-            className="serif"
-            style={{
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            Additional requests
-          </h2>
-
-          <div
-            className="field"
-            style={{
-              marginTop: 20,
-            }}
-          >
-            <textarea
-              value={notes}
-              disabled={busy}
-              onChange={(event) =>
-                setNotes(
-                  event.target.value
-                )
-              }
-              placeholder="Additional notes..."
-              style={{
-                minHeight: 150,
-                resize: "vertical",
-              }}
-            />
-          </div>
-        </section>
-
-        {/* PAYMENTS */}
-        <section
-          className="card"
-          style={{
-            padding: 24,
-          }}
-        >
-          <div className="kicker">
-            Payments
-          </div>
-
-          <h2
-            className="serif"
-            style={{
-              marginTop: 6,
-              marginBottom: 0,
-            }}
-          >
-            Record payment
-          </h2>
-
-          <p
-            className="muted"
-            style={{
-              marginTop: 8,
-              lineHeight: 1.5,
-            }}
-          >
-            Record balance payments,
-            additional charges, tips,
-            or other payments.
-          </p>
-
-          <div
-            style={{
-              marginTop: 18,
-              padding: 16,
-              border:
-                "1px solid var(--line)",
-              borderRadius: 14,
-              display: "grid",
-              gap: 8,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-              }}
-            >
-              <span className="muted">
-                Current total
-              </span>
-
-              <strong>
-                {peso(total)}
-              </strong>
-            </div>
-
-            {discountAmount > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent:
-                    "space-between",
-                  gap: 15,
-                }}
-              >
-                <span className="muted">
-                  Discount
-                </span>
-
-                <strong>
-                  −{peso(
-                    discountAmount
-                  )}
-                </strong>
-              </div>
-            )}
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-                paddingTop: 8,
-                borderTop:
-                  "1px solid var(--line)",
-              }}
-            >
-              <strong>
-                Final total
-              </strong>
-
-              <strong>
-                {peso(
-                  currentFinalTotal
-                )}
-              </strong>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-              }}
-            >
-              <span className="muted">
-                Down payment
-                (verified)
-              </span>
-
-              <strong>
-                {peso(
-                  verifiedDownPayment
-                )}
-              </strong>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-              }}
-            >
-              <span className="muted">
-                Balance paid
-              </span>
-
-              <strong>
-                {peso(
-                  verifiedBalancePayments
-                )}
-              </strong>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent:
-                  "space-between",
-                gap: 15,
-                paddingTop: 10,
-                marginTop: 2,
-                borderTop:
-                  "1px solid var(--line)",
-              }}
-            >
-              <strong>
-                Remaining
-              </strong>
-
-              <strong>
-                {peso(
-                  currentRemaining
-                )}
-              </strong>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gap: 14,
-              marginTop: 20,
-            }}
-          >
+          {discountChoice ===
+            "student_pwd_sc" && (
             <div className="field">
               <label>
-                Payment type
+                Discount Type *
               </label>
 
               <select
-                value={paymentType}
-                disabled={
-                  paymentBusy
+                value={
+                  discountCategory
                 }
-                onChange={(event) => {
-                  const value =
-                    event.target
-                      .value as PaymentType;
-
-                  setPaymentType(
-                    value
-                  );
-
-                  if (
-                    value ===
-                    "balance"
-                  ) {
-                    setPaymentAmount(
-                      currentRemaining >
-                        0
-                        ? currentRemaining.toFixed(
-                            2
-                          )
-                        : ""
-                    );
-                  }
-                }}
-              >
-                <option value="additional_charge">
-                  Additional Charge
-                </option>
-
-                <option value="balance">
-                  Balance Payment
-                </option>
-
-                <option value="tip">
-                  Tip
-                </option>
-
-                <option value="other">
-                  Other
-                </option>
-              </select>
-            </div>
-
-            <div className="inline-grid">
-              <div className="field">
-                <label>
-                  Amount
-                </label>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={
-                    paymentAmount
-                  }
-                  disabled={
-                    paymentBusy
-                  }
-                  onChange={(event) =>
-                    setPaymentAmount(
-                      event.target
-                        .value
-                    )
-                  }
-                  placeholder={
-                    paymentType ===
-                    "balance"
-                      ? currentRemaining.toFixed(
-                          2
-                        )
-                      : "0.00"
-                  }
-                />
-
-                {paymentType ===
-                  "balance" && (
-                  <div
-                    className="muted"
-                    style={{
-                      marginTop: 5,
-                      fontSize: 13,
-                    }}
-                  >
-                    Maximum:{" "}
-                    {peso(
-                      currentRemaining
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="field">
-                <label>
-                  Payment method
-                </label>
-
-                <select
-                  value={
-                    paymentMethod
-                  }
-                  disabled={
-                    paymentBusy
-                  }
-                  onChange={(event) =>
-                    setPaymentMethod(
-                      event.target
-                        .value
-                    )
-                  }
-                >
-                  <option>
-                    Cash
-                  </option>
-
-                  <option>
-                    GCash
-                  </option>
-
-                  <option>
-                    Bank Transfer
-                  </option>
-
-                  <option>
-                    Maya
-                  </option>
-
-                  <option>
-                    Card
-                  </option>
-
-                  <option>
-                    Other
-                  </option>
-                </select>
-              </div>
-            </div>
-
-            <div className="field">
-              <label>
-                Note
-              </label>
-
-              <input
-                value={paymentNote}
-                disabled={
-                  paymentBusy
-                }
-                onChange={(event) =>
-                  setPaymentNote(
+                disabled={busy}
+                onChange={(
+                  event
+                ) =>
+                  setDiscountCategory(
                     event.target
                       .value
                   )
                 }
-                placeholder="Optional note"
-              />
-            </div>
-
-            {paymentError && (
-              <div
-                className="notice"
-                style={{
-                  borderColor:
-                    "rgba(160, 70, 70, 0.35)",
-                }}
               >
-                {paymentError}
-              </div>
-            )}
+                <option value="">
+                  Select Type
+                </option>
 
-            {paymentSaved && (
-              <div className="notice">
-                Payment recorded
-                successfully.
-              </div>
-            )}
+                <option value="student">
+                  Student
+                </option>
 
-            <button
-              type="button"
-              className="btn"
-              disabled={
-                paymentBusy
-              }
-              onClick={
-                recordPayment
-              }
-            >
-              {paymentBusy
-                ? "Recording…"
-                : "Record Payment"}
-            </button>
-          </div>
-        </section>
+                <option value="pwd">
+                  PWD
+                </option>
 
-        {error && (
-          <div
-            className="notice"
-            style={{
-              borderColor:
-                "rgba(160, 70, 70, 0.35)",
-              lineHeight: 1.5,
-            }}
-          >
-            {error}
-          </div>
-        )}
+                <option value="senior_citizen">
+                  Senior Citizen
+                </option>
+              </select>
 
-        {saved && (
-          <div
-            className="notice"
-            style={{
-              lineHeight: 1.5,
-            }}
-          >
-            Booking updated
-            successfully. Returning
-            to booking details…
-          </div>
-        )}
+              <small className="abe-help">
+                Verification
+                documents remain
+                attached to the
+                booking and are
+                reviewed from
+                Booking Details.
+              </small>
+            </div>
+          )}
 
-        {/* ACTIONS */}
-        <div
-          className="card"
-          style={{
-            padding: 18,
-            display: "flex",
-            alignItems:
-              "center",
-            justifyContent:
-              "flex-end",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <button
-            type="button"
-            className="btn secondary"
-            disabled={busy}
-            onClick={cancel}
-          >
-            Cancel
-          </button>
+          {discountChoice ===
+            "referral" && (
+            <div className="field">
+              <label>
+                Referred By *
+              </label>
 
-          <button
-            type="button"
-            className="btn"
-            disabled={
-              busy ||
-              availabilityLoading
-            }
-            onClick={save}
-          >
-            {busy
-              ? "Saving…"
-              : "Save Changes"}
-          </button>
+              <input
+                value={
+                  referralName
+                }
+                disabled={busy}
+                onChange={(
+                  event
+                ) =>
+                  setReferralName(
+                    event.target
+                      .value
+                  )
+                }
+                placeholder="Name of the person who referred the client"
+              />
+
+              <small className="abe-help">
+                Referral Program
+                records who
+                referred the
+                client. It does
+                not automatically
+                apply a 5%
+                discount.
+              </small>
+            </div>
+          )}
+
+          {discountChoice ===
+            "other_amount" && (
+            <div className="field">
+              <label>
+                Discount Amount *
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={
+                  manualDiscountAmount
+                }
+                disabled={busy}
+                onChange={(
+                  event
+                ) =>
+                  setManualDiscountAmount(
+                    event.target
+                      .value
+                  )
+                }
+                placeholder="Enter amount"
+              />
+
+              <small className="abe-help">
+                Enter the exact
+                peso amount to
+                deduct from the
+                booking total.
+              </small>
+            </div>
+          )}
         </div>
-      </div>
+
+        <div className="abe-discount-preview">
+          <div>
+            <span>
+              Selected Option
+            </span>
+
+            <strong>
+              {getDiscountLabel(
+                discountChoice,
+                promos
+              )}
+            </strong>
+          </div>
+
+          <div>
+            <span>
+              Discount Amount
+            </span>
+
+            <strong>
+              −
+              {peso(
+                discountPreview
+              )}
+            </strong>
+          </div>
+
+          <div className="abe-total-row">
+            <span>
+              Estimated Total
+              After Discount
+            </span>
+
+            <strong>
+              {peso(
+                finalTotal
+              )}
+            </strong>
+          </div>
+
+          <div>
+            <span>
+              Admin Override
+            </span>
+
+            <strong>
+              {discountPreview <= 0
+                ? "Not Applicable"
+                : "Applied on Save"}
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="abe-card">
+        <div className="abe-kicker">
+          Removal
+        </div>
+
+        <h2>
+          Removal
+        </h2>
+
+        <div className="field">
+          <label>
+            Removal Option
+          </label>
+
+          <select
+            value={removal}
+            disabled={busy}
+            onChange={(
+              event
+            ) =>
+              setRemoval(
+                event.target
+                  .value
+              )
+            }
+          >
+            {removalOptions.map(
+              (option) => (
+                <option
+                  key={
+                    option
+                  }
+                  value={
+                    option
+                  }
+                >
+                  {option}
+                </option>
+              )
+            )}
+          </select>
+        </div>
+      </section>
+
+      <section className="abe-card">
+        <div className="abe-kicker">
+          Notes
+        </div>
+
+        <h2>
+          Additional Requests
+        </h2>
+
+        <div className="field">
+          <label>
+            Notes
+          </label>
+
+          <textarea
+            value={notes}
+            disabled={busy}
+            onChange={(
+              event
+            ) =>
+              setNotes(
+                event.target
+                  .value
+              )
+            }
+            placeholder="Additional notes..."
+          />
+        </div>
+      </section>
+
+      {error && (
+        <div className="notice abe-error">
+          {error}
+        </div>
+      )}
+
+      {saved && (
+        <div className="notice">
+          Booking updated
+          successfully.
+          Returning to booking
+          details…
+        </div>
+      )}
+
+      <section className="abe-actions">
+        <button
+          type="button"
+          className="btn secondary"
+          disabled={busy}
+          onClick={cancel}
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          className="btn"
+          disabled={
+            busy ||
+            availabilityLoading
+          }
+          onClick={save}
+        >
+          {busy
+            ? "Saving…"
+            : "Save Changes"}
+        </button>
+      </section>
+
+      <style jsx>{`
+        .abe-page {
+          width: 100%;
+          max-width: 900px;
+          margin: 0 auto;
+          display: grid;
+          gap: 18px;
+        }
+
+        .abe-card,
+        .abe-actions {
+          background: var(
+            --card,
+            #fff
+          );
+          border: 1px solid
+            var(
+              --line,
+              #e8e3dc
+            );
+          border-radius: 18px;
+          padding: 24px;
+        }
+
+        .abe-kicker {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(
+            --muted,
+            #777
+          );
+        }
+
+        h2 {
+          margin: 6px 0 20px;
+          font-family: inherit;
+          font-size: 24px;
+          line-height: 1.15;
+        }
+
+        .abe-muted,
+        .abe-help {
+          color: var(
+            --muted,
+            #777
+          );
+        }
+
+        .abe-muted {
+          margin: -8px 0 20px;
+          line-height: 1.55;
+          font-size: 14px;
+        }
+
+        .abe-help {
+          display: block;
+          margin-top: 7px;
+          font-size: 12px;
+          line-height: 1.45;
+        }
+
+        .abe-fields {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              2,
+              minmax(0, 1fr)
+            );
+          gap: 16px;
+        }
+
+        .field {
+          min-width: 0;
+        }
+
+        .field label,
+        .abe-times > label {
+          display: block;
+          margin-bottom: 7px;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .field input,
+        .field select,
+        .field textarea {
+          width: 100%;
+          box-sizing:
+            border-box;
+        }
+
+        .field textarea {
+          min-height: 140px;
+          resize: vertical;
+        }
+
+        .abe-calendar {
+          padding: 15px;
+          border: 1px solid #ddd;
+          border-radius: 12px;
+          background: #fff;
+        }
+
+        .abe-calendar-head {
+          display: flex;
+          justify-content:
+            space-between;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .abe-calendar-head strong {
+          color: #111;
+          font-size: 14px;
+          font-weight: 700;
+        }
+
+        .abe-calendar-head button {
+          min-width: 42px;
+          min-height: 38px;
+          padding: 8px 12px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          background: #fff;
+          color: #111;
+        }
+
+        .abe-calendar-head button:hover:not(:disabled) {
+          background: #f7f7f7;
+        }
+
+        .abe-week,
+        .abe-days {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              7,
+              minmax(0, 1fr)
+            );
+          gap: 5px;
+        }
+
+        .abe-week {
+          margin-top: 14px;
+        }
+
+        .abe-week div {
+          text-align: center;
+          font-size: 11px;
+          font-weight: 600;
+          color: #777;
+          padding: 5px 0;
+        }
+
+        .abe-day,
+        .abe-day-empty {
+          min-height: 48px;
+        }
+
+        .abe-day {
+          position: relative;
+          border-radius: 8px;
+          border: 1px solid #ddd;
+          background: #fff;
+          color: #111;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .abe-day.available {
+          background: #fff7f9;
+          border-color: #eadde1;
+        }
+
+        .abe-day.available:hover:not(:disabled) {
+          background: #fceff3;
+        }
+
+        .abe-day.selected {
+          border-color: #111;
+          background: #111;
+          color: #fff;
+          font-weight: 700;
+        }
+
+        .abe-day.selected:hover:not(:disabled) {
+          background: #111;
+        }
+
+        .abe-day:disabled,
+        .abe-day.unavailable {
+          cursor: not-allowed;
+          border-color: #eee;
+          background: #f7f7f7;
+          color: #aaa;
+          opacity: 1;
+        }
+
+        .abe-dot {
+          display: block;
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: currentColor;
+          margin: 4px auto 0;
+          opacity: 0.65;
+        }
+
+        .abe-notice,
+        .abe-times {
+          margin-top: 14px;
+        }
+
+        .abe-time-grid {
+          display: grid;
+          grid-template-columns:
+            repeat(
+              auto-fill,
+              minmax(
+                110px,
+                1fr
+              )
+            );
+          gap: 8px;
+        }
+
+        .abe-time {
+          border: 1px solid #ddd;
+          background: #fff;
+          color: #111;
+          border-radius: 8px;
+          padding: 10px 8px;
+          cursor: pointer;
+          font-weight: 500;
+        }
+
+        .abe-time:hover:not(:disabled) {
+          background: #f7f7f7;
+        }
+
+        .abe-time.selected {
+          border-color: #111;
+          background: #111;
+          color: #fff;
+          font-weight: 700;
+        }
+
+        .abe-selection {
+          margin-top: 16px;
+          padding: 14px;
+          border: 1px solid
+            var(
+              --line,
+              #e8e3dc
+            );
+          border-radius: 12px;
+          display: grid;
+          gap: 5px;
+        }
+
+        .abe-selection span {
+          color: var(
+            --muted,
+            #777
+          );
+          font-size: 13px;
+        }
+
+        .abe-services {
+          display: grid;
+          gap: 10px;
+        }
+
+        .abe-service {
+          border: 1px solid
+            var(
+              --line,
+              #e8e3dc
+            );
+          border-radius: 14px;
+          padding: 15px;
+        }
+
+        .abe-service-main {
+          display: flex;
+          align-items:
+            flex-start;
+          gap: 11px;
+          cursor: pointer;
+        }
+
+        .abe-service-main input {
+          margin-top: 4px;
+          flex: 0 0 auto;
+        }
+
+        .abe-service-main span {
+          min-width: 0;
+          flex: 1;
+          display: grid;
+          gap: 4px;
+        }
+
+        .abe-service-main small {
+          color: var(
+            --muted,
+            #777
+          );
+          line-height: 1.45;
+        }
+
+        .abe-variation {
+          margin-top: 12px;
+          margin-left: 29px;
+        }
+
+        .abe-summary,
+        .abe-discount-preview {
+          margin-top: 20px;
+          padding-top: 18px;
+          border-top: 1px solid
+            var(
+              --line,
+              #e8e3dc
+            );
+          display: grid;
+          gap: 9px;
+        }
+
+        .abe-summary > div,
+        .abe-discount-preview > div {
+          display: flex;
+          justify-content:
+            space-between;
+          align-items:
+            flex-start;
+          gap: 16px;
+        }
+
+        .abe-summary span,
+        .abe-discount-preview span {
+          color: var(
+            --muted,
+            #777
+          );
+        }
+
+        .abe-discount-preview strong {
+          text-align: right;
+        }
+
+        .abe-total-row {
+          padding-top: 10px;
+          border-top: 1px solid
+            var(
+              --line,
+              #e8e3dc
+            );
+        }
+
+        .abe-error {
+          border-color: rgba(
+            160,
+            70,
+            70,
+            0.35
+          );
+        }
+
+        .abe-actions {
+          display: flex;
+          justify-content:
+            flex-end;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+
+        @media (
+          max-width: 680px
+        ) {
+          .abe-card,
+          .abe-actions {
+            padding: 18px;
+            border-radius: 15px;
+          }
+
+          .abe-fields {
+            grid-template-columns:
+              1fr;
+          }
+
+          .abe-day,
+          .abe-day-empty {
+            min-height: 42px;
+          }
+
+          .abe-calendar {
+            padding: 10px;
+          }
+
+          .abe-variation {
+            margin-left: 0;
+          }
+
+          .abe-actions {
+            display: grid;
+            grid-template-columns:
+              1fr 1fr;
+          }
+
+          .abe-actions button {
+            width: 100%;
+          }
+
+          .field input,
+          .field select,
+          .field textarea {
+            font-size: 16px;
+          }
+        }
+      `}</style>
     </div>
   );
 }

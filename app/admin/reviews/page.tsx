@@ -18,22 +18,9 @@ type Review = {
   customer_name: string;
   rating: number;
   review_text: string;
-  nail_photo_path:
-    | string
-    | null;
   public_consent: boolean;
   status: ReviewStatus;
-  admin_note:
-    | string
-    | null;
   created_at: string;
-  approved_at:
-    | string
-    | null;
-  featured_at:
-    | string
-    | null;
-
   bookings:
     | {
         id: string;
@@ -41,10 +28,10 @@ type Review = {
           | string
           | null;
         status: string;
-        appointment_date:
+        preferred_date:
           | string
           | null;
-        appointment_time:
+        preferred_time:
           | string
           | null;
       }
@@ -70,30 +57,22 @@ const tabs = [
   },
 ] as const;
 
-function Stars({
-  rating,
-}: {
-  rating: number;
-}) {
+function Stars({ rating }: { rating: number }) {
   return (
     <div
-      className="flex gap-0.5"
+      className="review-stars"
       aria-label={`${rating} out of 5 stars`}
     >
-      {[1, 2, 3, 4, 5].map(
-        (star) => (
-          <span
-            key={star}
-            className={
-              star <= rating
-                ? "text-black"
-                : "text-black/15"
-            }
-          >
-            ★
-          </span>
-        )
-      )}
+      {[1, 2, 3, 4, 5].map((star) => (
+        <span
+          key={star}
+          className={`review-star ${
+            star <= rating ? "is-filled" : ""
+          }`}
+        >
+          ★
+        </span>
+      ))}
     </div>
   );
 }
@@ -143,21 +122,8 @@ export default function AdminReviewsPage() {
     string | null
   >(null);
 
-  const [
-    error,
-    setError,
-  ] = useState("");
-
-  const [
-    notes,
-    setNotes,
-  ] = useState<
-    Record<string, string>
-  >({});
-
   async function loadReviews() {
     setLoading(true);
-    setError("");
 
     try {
       const response =
@@ -175,26 +141,18 @@ export default function AdminReviewsPage() {
             () => ({})
           );
 
-      if (
-        !response.ok
-      ) {
-        throw new Error(
-          data?.error ||
-            "Unable to load reviews."
-        );
+      if (!response.ok) {
+        setReviews([]);
+        return;
       }
 
       setReviews(
-        data.reviews ||
-          []
+        Array.isArray(data?.reviews)
+          ? data.reviews
+          : []
       );
-    } catch (
-      loadError: any
-    ) {
-      setError(
-        loadError?.message ||
-          "Unable to load reviews."
-      );
+    } catch {
+      setReviews([]);
     } finally {
       setLoading(false);
     }
@@ -228,18 +186,12 @@ export default function AdminReviewsPage() {
         "feature" &&
       !review.public_consent
     ) {
-      setError(
-        "This customer did not provide public display consent."
-      );
-
       return;
     }
 
     setActionLoading(
       review.id
     );
-
-    setError("");
 
     try {
       const response =
@@ -264,11 +216,6 @@ export default function AdminReviewsPage() {
                   ? true
                   : undefined,
 
-              admin_note:
-                notes[
-                  review.id
-                ] ||
-                "",
             }),
           }
         );
@@ -280,23 +227,13 @@ export default function AdminReviewsPage() {
             () => ({})
           );
 
-      if (
-        !response.ok
-      ) {
-        throw new Error(
-          data?.error ||
-            "Unable to update review."
-        );
+      if (!response.ok) {
+        return;
       }
 
       await loadReviews();
-    } catch (
-      actionError: any
-    ) {
-      setError(
-        actionError?.message ||
-          "Unable to update review."
-      );
+    } catch {
+      return;
     } finally {
       setActionLoading(
         null
@@ -326,379 +263,356 @@ export default function AdminReviewsPage() {
     ).length;
 
   return (
-    <main className="min-h-screen bg-[#faf7f4] px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-8">
-          <p className="text-xs uppercase tracking-[0.2em] text-black/40">
-            Admin
+    <div className="admin-page reviews-admin-page">
+      <header className="reviews-page-head">
+        <div>
+          <div className="kicker">CUSTOMER FEEDBACK</div>
+          <h1 className="serif">Reviews</h1>
+          <p className="muted reviews-lead">
+            Moderate customer reviews before they appear publicly.
           </p>
-
-          <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="font-serif text-3xl sm:text-4xl">
-                Reviews
-              </h1>
-
-              <p className="mt-2 text-sm text-black/50">
-                Moderate customer
-                reviews before they
-                appear publicly.
-              </p>
-            </div>
-
-            {pendingCount >
-              0 && (
-              <div className="rounded-full bg-black px-4 py-2 text-xs font-medium text-white">
-                {pendingCount}{" "}
-                pending
-              </div>
-            )}
-          </div>
-        </header>
-
-        {error && (
-          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="mb-6 flex gap-2 overflow-x-auto pb-1">
-          {tabs.map(
-            (tab) => {
-              const count =
-                reviews.filter(
-                  (review) =>
-                    review.status ===
-                    tab.value
-                ).length;
-
-              return (
-                <button
-                  key={
-                    tab.value
-                  }
-                  type="button"
-                  onClick={() =>
-                    setActiveTab(
-                      tab.value
-                    )
-                  }
-                  className={`shrink-0 rounded-full px-4 py-2 text-sm ${
-                    activeTab ===
-                    tab.value
-                      ? "bg-black text-white"
-                      : "border border-black/10 bg-white"
-                  }`}
-                >
-                  {tab.label}
-
-                  <span className="ml-2 opacity-60">
-                    {count}
-                  </span>
-                </button>
-              );
-            }
-          )}
         </div>
 
-        {loading ? (
-          <div className="rounded-3xl border border-black/10 bg-white p-10 text-center text-sm text-black/50">
-            Loading reviews…
-          </div>
-        ) : visibleReviews.length ===
-          0 ? (
-          <div className="rounded-3xl border border-black/10 bg-white p-10 text-center">
-            <div className="text-3xl">
-              ♡
-            </div>
-
-            <h2 className="mt-3 font-serif text-2xl">
-              No{" "}
-              {activeTab}{" "}
-              reviews
-            </h2>
-
-            <p className="mt-2 text-sm text-black/50">
-              You’re all caught up.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {visibleReviews.map(
-              (review) => (
-                <article
-                  key={
-                    review.id
-                  }
-                  className="rounded-3xl border border-black/10 bg-white p-5 sm:p-7"
-                >
-                  <div className="flex flex-col gap-5 lg:flex-row lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h2 className="font-serif text-2xl">
-                          {
-                            review.customer_name
-                          }
-                        </h2>
-
-                        <Stars
-                          rating={
-                            review.rating
-                          }
-                        />
-                      </div>
-
-                      <p className="mt-1 text-xs text-black/40">
-                        Submitted{" "}
-                        {formatDate(
-                          review.created_at
-                        )}
-                      </p>
-
-                      {review
-                        .bookings
-                        ?.reference_code && (
-                        <p className="mt-2 text-xs uppercase tracking-[0.12em] text-black/40">
-                          Booking{" "}
-                          {
-                            review
-                              .bookings
-                              .reference_code
-                          }
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="shrink-0">
-                      <span className="rounded-full border border-black/10 px-3 py-1.5 text-xs capitalize">
-                        {
-                          review.status
-                        }
-                      </span>
-                    </div>
-                  </div>
-
-                  <blockquote className="mt-6 rounded-2xl bg-[#faf7f4] p-5 text-sm leading-7 text-black/75">
-                    “
-                    {
-                      review.review_text
-                    }
-                    ”
-                  </blockquote>
-
-                  <div className="mt-5 flex flex-wrap gap-3 text-xs text-black/50">
-                    <span>
-                      Public consent:{" "}
-                      <strong className="font-medium text-black">
-                        {review.public_consent
-                          ? "Yes"
-                          : "No"}
-                      </strong>
-                    </span>
-                  </div>
-
-                  <div className="mt-5">
-                    <label
-                      htmlFor={`note-${review.id}`}
-                      className="block text-xs font-medium uppercase tracking-[0.12em] text-black/40"
-                    >
-                      Admin note
-                    </label>
-
-                    <textarea
-                      id={`note-${review.id}`}
-                      rows={2}
-                      value={
-                        notes[
-                          review.id
-                        ] ??
-                        review.admin_note ??
-                        ""
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setNotes(
-                          (
-                            current
-                          ) => ({
-                            ...current,
-
-                            [review.id]:
-                              event
-                                .target
-                                .value,
-                          })
-                        )
-                      }
-                      placeholder="Internal note..."
-                      className="mt-2 w-full rounded-2xl border border-black/10 px-4 py-3 text-sm outline-none focus:border-black/30"
-                    />
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    {review.status ===
-                      "pending" && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading ===
-                            review.id
-                          }
-                          onClick={() =>
-                            performAction(
-                              review,
-                              "approve"
-                            )
-                          }
-                          className="rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading ===
-                            review.id
-                          }
-                          onClick={() =>
-                            performAction(
-                              review,
-                              "hide"
-                            )
-                          }
-                          className="rounded-xl border border-black/10 px-4 py-2.5 text-sm disabled:opacity-50"
-                        >
-                          Hide
-                        </button>
-                      </>
-                    )}
-
-                    {review.status ===
-                      "approved" && (
-                      <>
-                        {review.public_consent && (
-                          <button
-                            type="button"
-                            disabled={
-                              actionLoading ===
-                              review.id
-                            }
-                            onClick={() =>
-                              performAction(
-                                review,
-                                "feature"
-                              )
-                            }
-                            className="rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-                          >
-                            Feature
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading ===
-                            review.id
-                          }
-                          onClick={() =>
-                            performAction(
-                              review,
-                              "hide"
-                            )
-                          }
-                          className="rounded-xl border border-black/10 px-4 py-2.5 text-sm disabled:opacity-50"
-                        >
-                          Hide
-                        </button>
-                      </>
-                    )}
-
-                    {review.status ===
-                      "featured" && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading ===
-                            review.id
-                          }
-                          onClick={() =>
-                            performAction(
-                              review,
-                              "unfeature"
-                            )
-                          }
-                          className="rounded-xl border border-black/10 px-4 py-2.5 text-sm disabled:opacity-50"
-                        >
-                          Remove from Homepage
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={
-                            actionLoading ===
-                            review.id
-                          }
-                          onClick={() =>
-                            performAction(
-                              review,
-                              "hide"
-                            )
-                          }
-                          className="rounded-xl border border-red-200 px-4 py-2.5 text-sm text-red-700 disabled:opacity-50"
-                        >
-                          Hide
-                        </button>
-                      </>
-                    )}
-
-                    {review.status ===
-                      "hidden" && (
-                      <button
-                        type="button"
-                        disabled={
-                          actionLoading ===
-                          review.id
-                        }
-                        onClick={() =>
-                          performAction(
-                            review,
-                            "approve"
-                          )
-                        }
-                        className="rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-                      >
-                        Restore & Approve
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      disabled={
-                        actionLoading ===
-                        review.id
-                      }
-                      onClick={() =>
-                        performAction(
-                          review,
-                          "delete"
-                        )
-                      }
-                      className="rounded-xl border border-red-200 px-4 py-2.5 text-sm text-red-700 disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              )
-            )}
+        {pendingCount > 0 && (
+          <div className="reviews-pending-badge">
+            {pendingCount} pending
           </div>
         )}
+      </header>
+
+      <div className="reviews-tabs">
+        {tabs.map((tab) => {
+          const count = reviews.filter(
+            (review) => review.status === tab.value
+          ).length;
+
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setActiveTab(tab.value)}
+              className={`reviews-tab ${
+                activeTab === tab.value ? "is-active" : ""
+              }`}
+            >
+              {tab.label}
+              <span>{count}</span>
+            </button>
+          );
+        })}
       </div>
-    </main>
+
+      {loading ? (
+        <div className="card reviews-empty">Loading reviews…</div>
+      ) : visibleReviews.length === 0 ? (
+        <div className="card reviews-empty">
+          <div className="reviews-caught-up-icon">✓</div>
+          <h2 className="serif reviews-caught-up-title">
+            You’re all caught up
+          </h2>
+          <p className="muted reviews-caught-up-copy">
+            No {activeTab.toLowerCase()} reviews right now.
+          </p>
+        </div>
+      ) : (
+        <div className="reviews-list">
+          {visibleReviews.map((review) => (
+            <article key={review.id} className="card review-card">
+              <div className="review-card-head">
+                <div className="review-card-person">
+                  <div className="review-name-row">
+                    <h2 className="serif">{review.customer_name}</h2>
+                    <Stars rating={review.rating} />
+                  </div>
+
+                  <p className="muted review-submitted">
+                    Submitted {formatDate(review.created_at)}
+                  </p>
+
+                  {review.bookings?.reference_code && (
+                    <p className="review-reference">
+                      Booking {review.bookings.reference_code}
+                    </p>
+                  )}
+                </div>
+
+                <span className={`review-status status-${review.status}`}>
+                  {review.status}
+                </span>
+              </div>
+
+              <div className="review-copy">
+                “{review.review_text}”
+              </div>
+
+              <div className="review-meta">
+                <span>
+                  Public consent:{" "}
+                  <strong>
+                    {review.public_consent ? "Yes" : "No"}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="review-actions">
+                {review.status === "pending" && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={actionLoading === review.id}
+                      onClick={() => performAction(review, "approve")}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={actionLoading === review.id}
+                      onClick={() => performAction(review, "hide")}
+                    >
+                      Hide
+                    </button>
+                  </>
+                )}
+
+                {review.status === "approved" && (
+                  <>
+                    {review.public_consent && (
+                      <button
+                        type="button"
+                        className="btn primary"
+                        disabled={actionLoading === review.id}
+                        onClick={() => performAction(review, "feature")}
+                      >
+                        Feature
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={actionLoading === review.id}
+                      onClick={() => performAction(review, "hide")}
+                    >
+                      Hide
+                    </button>
+                  </>
+                )}
+
+                {review.status === "featured" && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn secondary"
+                      disabled={actionLoading === review.id}
+                      onClick={() => performAction(review, "unfeature")}
+                    >
+                      Remove from Homepage
+                    </button>
+                    <button
+                      type="button"
+                      className="btn danger"
+                      disabled={actionLoading === review.id}
+                      onClick={() => performAction(review, "hide")}
+                    >
+                      Hide
+                    </button>
+                  </>
+                )}
+
+                {review.status === "hidden" && (
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={actionLoading === review.id}
+                    onClick={() => performAction(review, "approve")}
+                  >
+                    Restore & Approve
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn danger"
+                  disabled={actionLoading === review.id}
+                  onClick={() => performAction(review, "delete")}
+                >
+                  Delete
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <style>{`
+        .reviews-page-head {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 20px;
+          margin-bottom: 24px;
+        }
+        .reviews-page-head h1 { margin: 4px 0 0; }
+        .reviews-lead { margin: 7px 0 0; max-width: 620px; }
+        .reviews-pending-badge {
+          flex: 0 0 auto;
+          padding: 8px 13px;
+          border-radius: 999px;
+          background: #111;
+          color: #fff;
+          font-size: 11px;
+          font-weight: 700;
+        }
+        .reviews-tabs {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 20px;
+          overflow-x: auto;
+          padding-bottom: 2px;
+        }
+        .reviews-tab {
+          flex: 0 0 auto;
+          border: 1px solid #ded8d3;
+          border-radius: 9px;
+          background: #fff;
+          padding: 9px 12px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .reviews-tab span { margin-left: 7px; opacity: .55; }
+        .reviews-tab.is-active {
+          border-color: #111;
+          background: #111;
+          color: #fff;
+        }
+        .reviews-empty {
+          min-height: 220px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          padding: 32px 20px;
+        }
+
+        .reviews-caught-up-icon {
+          display: grid;
+          place-items: center;
+          width: 42px;
+          height: 42px;
+          margin-bottom: 12px;
+          border: 1px solid rgba(0, 0, 0, 0.12);
+          border-radius: 50%;
+          font-size: 18px;
+          line-height: 1;
+        }
+
+        .reviews-caught-up-title {
+          margin: 0;
+          font-size: 22px;
+        }
+
+        .reviews-caught-up-copy {
+          margin: 6px 0 0;
+          font-size: 13px;
+        }
+
+        .reviews-list { display: grid; gap: 12px; }
+        .review-card { padding: 20px; border-radius: 12px; }
+        .review-card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+        }
+        .review-name-row {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .review-name-row h2 { margin: 0; font-size: 20px; }
+        .review-stars { display: flex; gap: 2px; font-size: 13px; }
+        .review-star { opacity: .15; }
+        .review-star.is-filled { opacity: 1; }
+        .review-submitted { margin: 5px 0 0; font-size: 11px; }
+        .review-reference {
+          margin: 7px 0 0;
+          color: #8a8581;
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: .08em;
+          text-transform: uppercase;
+        }
+        .review-status {
+          flex: 0 0 auto;
+          border-radius: 999px;
+          padding: 5px 9px;
+          background: #f0efed;
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: capitalize;
+        }
+        .status-featured { background: #f5eadf; }
+        .status-approved { background: #eaf2ec; }
+        .status-hidden { background: #eee; color: #777; }
+        .review-copy {
+          margin-top: 16px;
+          padding: 14px 16px;
+          border-radius: 10px;
+          background: #faf7f4;
+          color: #4f4b48;
+          font-size: 13px;
+          line-height: 1.55;
+        }
+        .review-meta {
+          margin-top: 12px;
+          color: #777;
+          font-size: 11px;
+        }
+        .review-meta strong { color: #222; font-weight: 700; }
+        .review-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-top: 14px;
+        }
+        .review-actions .btn {
+          min-height: 36px;
+          padding: 8px 12px;
+          font-size: 11px;
+        }
+        .review-actions .danger {
+          border: 1px solid #e5baba;
+          background: #fff;
+          color: #a33636;
+        }
+        .reviews-empty {
+          padding: 44px 20px;
+          text-align: center;
+        }
+        .reviews-empty-icon { font-size: 28px; }
+        .reviews-empty h2 { margin: 8px 0 0; font-size: 21px; }
+        .reviews-empty p { margin: 6px 0 0; }
+
+        @media (max-width: 700px) {
+          .reviews-page-head {
+            flex-direction: column;
+            gap: 12px;
+          }
+          .reviews-pending-badge { align-self: flex-start; }
+          .review-card { padding: 15px; }
+          .review-card-head { gap: 10px; }
+          .review-name-row h2 { font-size: 18px; }
+          .review-copy { padding: 12px; font-size: 12px; }
+          .review-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .review-actions .btn { width: 100%; }
+        }
+      `}</style>
+    </div>
   );
 }

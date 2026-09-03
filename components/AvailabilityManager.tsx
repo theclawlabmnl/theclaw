@@ -409,14 +409,14 @@ export default function AvailabilityManager({
           </div>
         </div>
 
-        <div className="override-form">
-          <div className="field date-field">
-            <label htmlFor="override-date">
+        <div className="override-form-desktop">
+          <div className="field">
+            <label htmlFor="override-date-desktop">
               Date
             </label>
 
             <input
-              id="override-date"
+              id="override-date-desktop"
               type="date"
               value={overrideDate}
               onChange={(event) =>
@@ -425,15 +425,107 @@ export default function AvailabilityManager({
             />
           </div>
 
-          {/* EXACT SAME TIME LAYOUT AS WEEKLY HOURS */}
-          <div className="hours override-hours">
-            <div className="hour">
-              <label htmlFor="override-start">
+          <div className="field">
+            <label htmlFor="override-start-desktop">
+              Start
+            </label>
+
+            <input
+              id="override-start-desktop"
+              type="time"
+              value={overrideStart}
+              onChange={(event) =>
+                setOverrideStart(event.target.value)
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="override-end-desktop">
+              End
+            </label>
+
+            <input
+              id="override-end-desktop"
+              type="time"
+              value={overrideEnd}
+              onChange={(event) =>
+                setOverrideEnd(event.target.value)
+              }
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="override-kind-desktop">
+              Type
+            </label>
+
+            <select
+              id="override-kind-desktop"
+              value={overrideKind}
+              onChange={(event) =>
+                setOverrideKind(
+                  event.target.value as
+                    | "open"
+                    | "block"
+                )
+              }
+            >
+              <option value="block">
+                Block
+              </option>
+
+              <option value="open">
+                Open
+              </option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label
+              className="desktop-action-label"
+              aria-hidden="true"
+            >
+              Action
+            </label>
+
+            <button
+              type="button"
+              className="btn btn-primary add-override"
+              onClick={saveOverride}
+              disabled={savingOverride}
+            >
+              {savingOverride
+                ? "Saving..."
+                : "Add Override"}
+            </button>
+          </div>
+        </div>
+
+        <div className="override-form-mobile">
+          <div className="field mobile-date-field">
+            <label htmlFor="override-date-mobile">
+              Date
+            </label>
+
+            <input
+              id="override-date-mobile"
+              type="date"
+              value={overrideDate}
+              onChange={(event) =>
+                setOverrideDate(event.target.value)
+              }
+            />
+          </div>
+
+          <div className="mobile-time-row">
+            <div className="field">
+              <label htmlFor="override-start-mobile">
                 Start
               </label>
 
               <input
-                id="override-start"
+                id="override-start-mobile"
                 type="time"
                 value={overrideStart}
                 onChange={(event) =>
@@ -442,17 +534,20 @@ export default function AvailabilityManager({
               />
             </div>
 
-            <span className="to">
+            <span
+              className="mobile-to"
+              aria-hidden="true"
+            >
               to
             </span>
 
-            <div className="hour">
-              <label htmlFor="override-end">
+            <div className="field">
+              <label htmlFor="override-end-mobile">
                 End
               </label>
 
               <input
-                id="override-end"
+                id="override-end-mobile"
                 type="time"
                 value={overrideEnd}
                 onChange={(event) =>
@@ -462,13 +557,13 @@ export default function AvailabilityManager({
             </div>
           </div>
 
-          <div className="field type-field">
-            <label htmlFor="override-kind">
+          <div className="field mobile-type-field">
+            <label htmlFor="override-kind-mobile">
               Type
             </label>
 
             <select
-              id="override-kind"
+              id="override-kind-mobile"
               value={overrideKind}
               onChange={(event) =>
                 setOverrideKind(
@@ -490,7 +585,7 @@ export default function AvailabilityManager({
 
           <button
             type="button"
-            className="btn btn-primary add-override"
+            className="btn btn-primary add-override mobile-add-override"
             onClick={saveOverride}
             disabled={savingOverride}
           >
@@ -711,16 +806,6 @@ export default function AvailabilityManager({
           OVERRIDES
         */
 
-        .override-form {
-          display: flex;
-          align-items: flex-end;
-          flex-wrap: wrap;
-          gap: 12px;
-          width: 100%;
-          max-width: 100%;
-          box-sizing: border-box;
-        }
-
         .field {
           min-width: 0;
           display: grid;
@@ -728,74 +813,82 @@ export default function AvailabilityManager({
           box-sizing: border-box;
         }
 
-       .date-field {
-  width: 135px;
-  flex: 0 0 135px;
-  min-width: 0;
-}
+        .field label {
+          font-size: 10px;
+          color: var(--muted);
+          line-height: 1;
+        }
 
-        /*
-          Override hours uses the SAME structure
-          as Weekly Hours, but is compact.
-        */
-        .override-hours {
-          width: 278px;
-          max-width: 278px;
-          flex: 0 0 278px;
+        .override-form-desktop {
+          display: grid;
           grid-template-columns:
-            120px
-            28px
-            120px;
-          gap: 10px;
+            repeat(5, minmax(0, 1fr));
+          align-items: end;
+          gap: 12px;
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
         }
 
-        .override-hours .hour {
-          width: 120px;
-          min-width: 120px;
-          max-width: 120px;
+        .override-form-desktop .field {
+          grid-template-rows: 12px 36px;
         }
 
-        .override-hours .hour input {
-          width: 120px;
-          min-width: 120px;
-          max-width: 120px;
-        }
-
-        .override-hours .to {
-          width: 28px;
-          margin-bottom: 8px;
-        }
-
-        .type-field {
-          width: 110px;
-          flex: 0 0 110px;
-        }
-
-        .field input,
-.field select {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  height: 36px;
-  box-sizing: border-box;
-  padding: 6px 8px;
-  font-size: 13px;
-}
-
-.date-field input[type="date"] {
-  width: 350px;
-  max-width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-        .add-override {
+        .override-form-desktop input,
+        .override-form-desktop select,
+        .override-form-desktop .add-override {
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
           height: 36px;
-          padding: 7px 13px;
+          min-height: 36px;
+          max-height: 36px;
+          margin: 0;
+          box-sizing: border-box;
+        }
+
+        .override-form-desktop input,
+        .override-form-desktop select {
+          padding: 6px 8px;
+          font-size: 13px;
+        }
+
+        .override-form-desktop .add-override {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+          height: 36px;
+          min-height: 36px;
+          max-height: 36px;
+          margin: 0;
+          padding: 6px 8px;
+          border-width: 1px;
+          box-sizing: border-box;
           white-space: nowrap;
           font-size: 12px;
-          flex: 0 0 auto;
+          line-height: 1;
+          transform: translateY(-14px);
+        }
+
+        .override-form-desktop .field:last-child {
+          grid-template-rows: 12px 36px;
+          align-items: end;
+        }
+
+        .desktop-action-label {
+          display: block;
+          height: 12px;
+          min-height: 12px;
+          margin: 0;
+          line-height: 12px;
+          visibility: hidden;
+        }
+
+        .override-form-mobile {
+          display: none;
         }
 
         .override-list {
@@ -903,59 +996,83 @@ export default function AvailabilityManager({
             margin-bottom: 8px;
           }
 
-          .override-form {
+          .override-form-desktop {
+            display: none;
+          }
+
+          .override-form-mobile {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            gap: 10px;
+            gap: 14px;
+            width: 100%;
           }
 
-          .date-field {
+          .override-form-mobile .field {
             width: 100%;
+          }
+
+          .mobile-date-field {
+            width: 330px !important;
             max-width: 100%;
-            flex: none;
           }
 
-          /*
-            Override now has the exact same
-            three-column time structure as weekly.
-          */
-          .override-hours {
+          .override-form-mobile input,
+          .override-form-mobile select {
             width: 100%;
-            max-width: 330px;
-            flex: none;
+            min-width: 0;
+            max-width: 100%;
+            height: 36px;
+            box-sizing: border-box;
+            padding: 6px 8px;
+            font-size: 13px;
+          }
+
+          .mobile-time-row {
+            display: grid;
             grid-template-columns:
               minmax(0, 1fr)
               38px
               minmax(0, 1fr);
+            align-items: end;
             gap: 10px;
-          }
-
-          .override-hours .hour {
-            width: 100%;
-            min-width: 0;
+            width: 330px;
             max-width: 100%;
           }
 
-          .override-hours .hour input {
-            width: 100%;
-            min-width: 0;
-            max-width: 100%;
+          .mobile-time-row .field {
+            grid-template-rows: 12px 36px;
           }
 
-          .override-hours .to {
+          .mobile-time-row .field:last-child {
+            transform: translateY(-14px);
+          }
+
+          .mobile-time-row input {
+            height: 36px;
+          }
+
+          .mobile-to {
+            display: flex;
+            align-items: center;
+            justify-content: center;
             width: 38px;
-            margin-bottom: 8px;
+            height: 36px;
+            margin: 0;
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1;
           }
 
-          .type-field {
-            width: 120px;
-            flex: none;
+          .mobile-type-field {
+            width: 120px !important;
+            max-width: 120px;
           }
 
-          .add-override {
+          .mobile-add-override {
             width: 100%;
-            flex: none;
+            height: 36px;
+            box-sizing: border-box;
           }
         }
 
@@ -983,32 +1100,10 @@ export default function AvailabilityManager({
             gap: 10px;
           }
 
-          .override-hours {
-            width: 100%;
-            max-width: 300px;
-            grid-template-columns:
-              minmax(0, 1fr)
-              38px
-              minmax(0, 1fr);
-            gap: 10px;
-          }
-
-          .override-hours .hour {
-            width: 100%;
-            min-width: 0;
-          }
-
-          .override-hours .hour input {
-            width: 100%;
-            min-width: 0;
-          }
-
-          .type-field {
-            width: 120px;
-          }
-
-          .add-override {
-            width: 100%;
+          .mobile-date-field,
+          .mobile-time-row {
+            width: 300px !important;
+            max-width: 100%;
           }
         }
       `}</style>

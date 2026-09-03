@@ -11,7 +11,18 @@ import {
   supabaseAdmin,
 } from "@/lib/supabase-admin";
 
-async function getAdminDb() {
+type AdminContext = {
+  db: ReturnType<typeof supabaseAdmin>;
+  user: {
+    id: string;
+    email?: string | null;
+  };
+  admin: {
+    id: string;
+  };
+};
+
+async function getAdminDb(): Promise<AdminContext | null> {
   const session = await supabaseServer();
 
   const {
@@ -43,7 +54,18 @@ async function getAdminDb() {
     return null;
   }
 
-  return admin ? db : null;
+  if (!admin) {
+    return null;
+  }
+
+  return {
+    db,
+    user: {
+      id: user.id,
+      email: user.email,
+    },
+    admin,
+  };
 }
 
 function normalizeMethod(
@@ -106,10 +128,85 @@ function currency(
   ).format(amount);
 }
 
+async function recordActivity(
+  db: ReturnType<typeof supabaseAdmin>,
+  {
+    bookingId,
+    action,
+    description,
+    oldValue,
+    newValue,
+    actorId,
+    actorEmail,
+  }: {
+    bookingId: string;
+    action: string;
+    description: string;
+    oldValue?: unknown;
+    newValue?: unknown;
+    actorId?: string | null;
+    actorEmail?: string | null;
+  }
+) {
+  try {
+    const { error } = await db
+      .from(
+        "booking_activity_logs"
+      )
+      .insert({
+        booking_id:
+          bookingId,
+
+        action,
+
+        description,
+
+        old_value:
+          oldValue == null
+            ? null
+            : typeof oldValue ===
+                "string"
+              ? oldValue
+              : JSON.stringify(
+                  oldValue
+                ),
+
+        new_value:
+          newValue == null
+            ? null
+            : typeof newValue ===
+                "string"
+              ? newValue
+              : JSON.stringify(
+                  newValue
+                ),
+
+        actor_id:
+          actorId || null,
+
+        actor_email:
+          actorEmail || null,
+
+        created_at:
+          new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error(
+        "Booking activity log error:",
+        error
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Booking activity log exception:",
+      error
+    );
+  }
+}
+
 async function getVerifiedBookingPayments(
-  db: ReturnType<
-    typeof supabaseAdmin
-  >,
+  db: ReturnType<typeof supabaseAdmin>,
   bookingId: string
 ) {
   const {
@@ -191,10 +288,10 @@ export async function PATCH(
   request: NextRequest
 ) {
   try {
-    const db =
+    const adminContext =
       await getAdminDb();
 
-    if (!db) {
+    if (!adminContext) {
       return NextResponse.json(
         {
           error:
@@ -205,6 +302,12 @@ export async function PATCH(
         }
       );
     }
+
+    const {
+      db,
+      user,
+      admin,
+    } = adminContext;
 
     const body =
       await request
@@ -310,6 +413,71 @@ export async function PATCH(
         );
       }
 
+      /*
+       * Load booking separately so we can:
+       * - prevent draft payments
+       * - log booking status changes
+       */
+      const {
+        data: booking,
+        error:
+          bookingError,
+      } = await db
+        .from("bookings")
+        .select(
+          `
+            id,
+            reference_code,
+            customer_name,
+            estimated_total,
+            status,
+            down_payment,
+            confirmed_at
+          `
+        )
+        .eq(
+          "id",
+          payment.booking_id
+        )
+        .single();
+
+      if (
+        bookingError ||
+        !booking
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              bookingError?.message ||
+              "Booking not found.",
+          },
+          {
+            status: 404,
+          }
+        );
+      }
+
+      /*
+       * Drafts are not real bookings.
+       * They must never receive payment records
+       * or payment processing.
+       */
+      if (
+        String(
+          booking.status
+        ) === "draft"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Draft bookings cannot have payments processed.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
       if (
         payment.status !==
         "submitted"
@@ -387,6 +555,10 @@ export async function PATCH(
         .eq(
           "id",
           id
+        )
+        .eq(
+          "status",
+          "submitted"
         );
 
       if (updateError) {
@@ -394,7 +566,9 @@ export async function PATCH(
       }
 
       /*
+       * =======================================================
        * VERIFIED PAYMENT
+       * =======================================================
        */
 
       if (
@@ -425,38 +599,6 @@ export async function PATCH(
               verifiedPayments
             );
 
-          const {
-            data: booking,
-            error:
-              bookingError,
-          } = await db
-            .from("bookings")
-            .select(
-              `
-                id,
-                estimated_total,
-                status,
-                down_payment
-              `
-            )
-            .eq(
-              "id",
-              payment.booking_id
-            )
-            .single();
-
-          if (
-            bookingError ||
-            !booking
-          ) {
-            throw (
-              bookingError ||
-              new Error(
-                "Booking not found."
-              )
-            );
-          }
-
           const bookingTotal =
             Number(
               booking.estimated_total ||
@@ -471,9 +613,14 @@ export async function PATCH(
               paidTowardBooking,
           };
 
+          const oldStatus =
+            String(
+              booking.status
+            );
+
           /*
-           * A verified initial payment
-           * confirms the appointment.
+           * Initial booking payment confirms
+           * the appointment.
            */
           if (
             [
@@ -482,10 +629,12 @@ export async function PATCH(
             ].includes(
               paymentType
             ) &&
-            booking.status !==
-              "confirmed" &&
-            booking.status !==
-              "completed"
+            ![
+              "confirmed",
+              "completed",
+            ].includes(
+              oldStatus
+            )
           ) {
             bookingPatch.status =
               "confirmed";
@@ -505,22 +654,21 @@ export async function PATCH(
               "cancelled",
               "rejected",
             ].includes(
-              String(
-                booking.status
-              )
+              oldStatus
             )
           ) {
             bookingPatch.down_payment =
               paidTowardBooking;
 
             if (
-              booking.status !==
+              oldStatus !==
               "completed"
             ) {
               bookingPatch.status =
                 "confirmed";
 
               bookingPatch.confirmed_at =
+                booking.confirmed_at ||
                 now;
             }
           }
@@ -543,11 +691,168 @@ export async function PATCH(
           ) {
             throw bookingUpdateError;
           }
+
+          /*
+           * Payment activity.
+           */
+          await recordActivity(
+            db,
+            {
+              bookingId:
+                payment.booking_id,
+
+              action:
+                "payment_verified",
+
+              description:
+                `Payment verified: ${currency(
+                  Number(
+                    payment.amount ||
+                      0
+                  )
+                )} via ${
+                  payment.method ||
+                  "Unknown"
+                }.`,
+
+              oldValue: {
+                payment_status:
+                  "submitted",
+                payment_type:
+                  paymentType,
+              },
+
+              newValue: {
+                payment_status:
+                  "verified",
+                payment_type:
+                  paymentType,
+                amount:
+                  Number(
+                    payment.amount ||
+                      0
+                  ),
+                method:
+                  payment.method ||
+                  null,
+              },
+
+              actorId:
+                user.id,
+
+              actorEmail:
+                user.email ||
+                null,
+            }
+          );
+
+          /*
+           * Booking confirmation activity.
+           */
+          const newBookingStatus =
+            String(
+              bookingPatch.status ||
+                oldStatus
+            );
+
+          if (
+            newBookingStatus !==
+            oldStatus
+          ) {
+            await recordActivity(
+              db,
+              {
+                bookingId:
+                  payment.booking_id,
+
+                action:
+                  "status_changed",
+
+                description:
+                  `Booking status changed from ${oldStatus} to ${newBookingStatus} after payment verification.`,
+
+                oldValue:
+                  oldStatus,
+
+                newValue:
+                  newBookingStatus,
+
+                actorId:
+                  user.id,
+
+                actorEmail:
+                  user.email ||
+                  null,
+              }
+            );
+          }
+
+          /*
+           * Keep admin ID available for audit
+           * debugging if needed.
+           */
+          void admin;
+        } else {
+          /*
+           * Non-booking payments such as tips,
+           * additional charges, or other payments
+           * still receive an activity entry.
+           */
+          await recordActivity(
+            db,
+            {
+              bookingId:
+                payment.booking_id,
+
+              action:
+                "payment_verified",
+
+              description:
+                `Payment verified: ${currency(
+                  Number(
+                    payment.amount ||
+                      0
+                  )
+                )} via ${
+                  payment.method ||
+                  "Unknown"
+                } (${paymentType}).`,
+
+              oldValue: {
+                payment_status:
+                  "submitted",
+              },
+
+              newValue: {
+                payment_status:
+                  "verified",
+                payment_type:
+                  paymentType,
+                amount:
+                  Number(
+                    payment.amount ||
+                      0
+                  ),
+                method:
+                  payment.method ||
+                  null,
+              },
+
+              actorId:
+                user.id,
+
+              actorEmail:
+                user.email ||
+                null,
+            }
+          );
         }
       }
 
       /*
-       * REJECTED INITIAL PAYMENT
+       * =======================================================
+       * REJECTED PAYMENT
+       * =======================================================
        */
 
       if (
@@ -557,6 +862,55 @@ export async function PATCH(
           normalizePaymentType(
             payment.payment_type
           );
+
+        await recordActivity(
+          db,
+          {
+            bookingId:
+              payment.booking_id,
+
+            action:
+              "payment_rejected",
+
+            description:
+              `Payment rejected: ${currency(
+                Number(
+                  payment.amount ||
+                    0
+                )
+              )} via ${
+                payment.method ||
+                "Unknown"
+              }.`,
+
+            oldValue: {
+              payment_status:
+                "submitted",
+            },
+
+            newValue: {
+              payment_status:
+                "rejected",
+              payment_type:
+                paymentType,
+              amount:
+                Number(
+                  payment.amount ||
+                    0
+                ),
+              method:
+                payment.method ||
+                null,
+            },
+
+            actorId:
+              user.id,
+
+            actorEmail:
+              user.email ||
+              null,
+          }
+        );
 
         if (
           [
@@ -588,6 +942,40 @@ export async function PATCH(
             bookingUpdateError
           ) {
             throw bookingUpdateError;
+          }
+
+          if (
+            String(
+              booking.status
+            ) ===
+            "payment_submitted"
+          ) {
+            await recordActivity(
+              db,
+              {
+                bookingId:
+                  payment.booking_id,
+
+                action:
+                  "status_changed",
+
+                description:
+                  "Booking returned to approved after payment was rejected.",
+
+                oldValue:
+                  "payment_submitted",
+
+                newValue:
+                  "approved",
+
+                actorId:
+                  user.id,
+
+                actorEmail:
+                  user.email ||
+                  null,
+              }
+            );
           }
         }
       }
@@ -716,9 +1104,12 @@ export async function PATCH(
         .select(
           `
             id,
+            reference_code,
+            customer_name,
             estimated_total,
             down_payment,
-            status
+            status,
+            confirmed_at
           `
         )
         .eq(
@@ -739,6 +1130,26 @@ export async function PATCH(
           },
           {
             status: 404,
+          }
+        );
+      }
+
+      /*
+       * Drafts are never allowed to receive
+       * manual payments.
+       */
+      if (
+        String(
+          booking.status
+        ) === "draft"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Draft bookings cannot have payments recorded.",
+          },
+          {
+            status: 400,
           }
         );
       }
@@ -851,6 +1262,65 @@ export async function PATCH(
       }
 
       /*
+       * Record payment activity.
+       */
+      await recordActivity(
+        db,
+        {
+          bookingId:
+            id,
+
+          action:
+            "payment_recorded",
+
+          description:
+            `Manual payment recorded: ${currency(
+              amount
+            )} via ${method} (${paymentType}).`,
+
+          oldValue: {
+            paid_toward_booking:
+              paidTowardBooking,
+          },
+
+          newValue: {
+            payment_id:
+              insertedPayment?.id ||
+              null,
+
+            amount,
+
+            method,
+
+            payment_type:
+              paymentType,
+
+            paid_toward_booking:
+              [
+                "down_payment",
+                "booking_payment",
+                "balance",
+              ].includes(
+                paymentType
+              )
+                ? paidTowardBooking +
+                  amount
+                : paidTowardBooking,
+
+            note:
+              note || null,
+          },
+
+          actorId:
+            user.id,
+
+          actorEmail:
+            user.email ||
+            null,
+        }
+      );
+
+      /*
        * Balance-related payments update
        * the booking's down_payment total.
        */
@@ -875,6 +1345,14 @@ export async function PATCH(
             newPaid,
         };
 
+        const oldStatus =
+          String(
+            booking.status
+          );
+
+        /*
+         * A fully paid booking becomes confirmed.
+         */
         if (
           newPaid >=
             bookingTotal &&
@@ -884,15 +1362,14 @@ export async function PATCH(
             "rejected",
             "completed",
           ].includes(
-            String(
-              booking.status
-            )
+            oldStatus
           )
         ) {
           bookingPatch.status =
             "confirmed";
 
           bookingPatch.confirmed_at =
+            booking.confirmed_at ||
             now;
         }
 
@@ -913,6 +1390,44 @@ export async function PATCH(
           bookingUpdateError
         ) {
           throw bookingUpdateError;
+        }
+
+        const newStatus =
+          String(
+            bookingPatch.status ||
+              oldStatus
+          );
+
+        if (
+          newStatus !==
+          oldStatus
+        ) {
+          await recordActivity(
+            db,
+            {
+              bookingId:
+                id,
+
+              action:
+                "status_changed",
+
+              description:
+                `Booking status changed from ${oldStatus} to ${newStatus} after manual payment was recorded.`,
+
+              oldValue:
+                oldStatus,
+
+              newValue:
+                newStatus,
+
+              actorId:
+                user.id,
+
+              actorEmail:
+                user.email ||
+                null,
+            }
+          );
         }
 
         return NextResponse.json({

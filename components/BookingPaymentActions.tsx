@@ -1,77 +1,72 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+type Props = {
+  token: string;
+};
 
 export default function BookingPaymentActions({
   token,
-}: {
-  token: string;
-}) {
+}: Props) {
   const [copied, setCopied] = useState(false);
-  const [copyError, setCopyError] = useState(false);
 
-  const paymentPath = `/payment/${token}`;
+  const paymentPath = useMemo(
+    () =>
+      `/payment/${encodeURIComponent(
+        token
+      )}`,
+    [token]
+  );
 
   function getPaymentUrl() {
     if (typeof window === "undefined") {
       return paymentPath;
     }
 
-    return new URL(
-      paymentPath,
-      window.location.origin
-    ).toString();
+    return `${window.location.origin}${paymentPath}`;
   }
 
-  async function handleCopy() {
-    const paymentUrl = getPaymentUrl();
-
-    setCopyError(false);
+  async function copyPaymentLink() {
+    const text = getPaymentUrl();
 
     try {
+      // Modern Clipboard API when available.
       if (
-        typeof navigator !== "undefined" &&
         navigator.clipboard &&
         window.isSecureContext
       ) {
-        await navigator.clipboard.writeText(paymentUrl);
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for localhost / HTTP / browsers where
+        // navigator.clipboard is unavailable.
+        const textarea =
+          document.createElement("textarea");
 
-        setCopied(true);
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "0";
+        textarea.style.opacity = "0";
 
-        window.setTimeout(() => {
-          setCopied(false);
-        }, 1800);
+        document.body.appendChild(textarea);
 
-        return;
-      }
-
-      const textarea =
-        document.createElement("textarea");
-
-      textarea.value = paymentUrl;
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      textarea.style.top = "0";
-      textarea.style.opacity = "0";
-
-      document.body.appendChild(textarea);
-
-      textarea.focus();
-      textarea.select();
-      textarea.setSelectionRange(
-        0,
-        textarea.value.length
-      );
-
-      const successful =
-        document.execCommand("copy");
-
-      document.body.removeChild(textarea);
-
-      if (!successful) {
-        throw new Error(
-          "Clipboard copy failed"
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(
+          0,
+          textarea.value.length
         );
+
+        const successful =
+          document.execCommand("copy");
+
+        document.body.removeChild(textarea);
+
+        if (!successful) {
+          throw new Error("Copy command failed");
+        }
       }
 
       setCopied(true);
@@ -81,23 +76,48 @@ export default function BookingPaymentActions({
       }, 1800);
     } catch (error) {
       console.error(
-        "Failed to copy payment link:",
+        "Unable to copy payment link:",
         error
       );
 
-      setCopyError(true);
+      // Final fallback: select an invisible temporary input and
+      // execute copy again during the same user click.
+      try {
+        const input =
+          document.createElement("input");
 
-      window.setTimeout(() => {
-        setCopyError(false);
-      }, 2500);
+        input.type = "text";
+        input.value = text;
+        input.style.position = "fixed";
+        input.style.left = "-9999px";
+        input.style.top = "0";
+
+        document.body.appendChild(input);
+
+        input.focus();
+        input.select();
+
+        document.execCommand("copy");
+
+        document.body.removeChild(input);
+
+        setCopied(true);
+
+        window.setTimeout(() => {
+          setCopied(false);
+        }, 1800);
+      } catch (fallbackError) {
+        console.error(
+          "Clipboard fallback failed:",
+          fallbackError
+        );
+      }
     }
   }
 
   function openPaymentPage() {
-    const paymentUrl = getPaymentUrl();
-
     window.open(
-      paymentUrl,
+      paymentPath,
       "_blank",
       "noopener,noreferrer"
     );
@@ -105,82 +125,76 @@ export default function BookingPaymentActions({
 
   function openBusinessSuite() {
     window.open(
-      "https://business.facebook.com/",
+      "https://business.facebook.com/latest/inbox/all",
       "_blank",
       "noopener,noreferrer"
     );
   }
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gap: 8,
-        marginTop: 10,
-      }}
-    >
+    <div className="payment-link-actions">
       <button
         type="button"
-        onClick={handleCopy}
-        className="btn"
-        style={{
-          width: "100%",
-        }}
+        className="payment-link-button"
+        onClick={copyPaymentLink}
       >
         {copied
           ? "✓ Payment Link Copied"
-          : copyError
-            ? "Copy Failed"
-            : "Copy Payment Link"}
+          : "Copy Payment Link"}
       </button>
 
       <button
         type="button"
+        className="payment-link-button"
         onClick={openPaymentPage}
-        className="btn secondary"
-        style={{
-          width: "100%",
-        }}
       >
         Open Payment Page
       </button>
 
       <button
         type="button"
+        className="payment-link-button"
         onClick={openBusinessSuite}
-        className="btn secondary"
-        style={{
-          width: "100%",
-        }}
       >
         Open Business Suite
       </button>
 
-      <div
-        className="muted"
-        style={{
-          fontSize: 11,
-          lineHeight: 1.4,
-          overflowWrap: "anywhere",
-          wordBreak: "break-word",
-        }}
-      >
-        {getPaymentUrl()}
-      </div>
+      <style jsx>{`
+        .payment-link-actions {
+          display: grid;
+          gap: 8px;
+          width: 100%;
+          min-width: 0;
+        }
 
-      {copyError && (
-        <div
-          className="notice"
-          style={{
-            fontSize: 12,
-            lineHeight: 1.45,
-          }}
-        >
-          Your browser blocked automatic
-          copying. The payment link is shown
-          above so you can copy it manually.
-        </div>
-      )}
+        .payment-link-button {
+          width: 100%;
+          min-height: 42px;
+          box-sizing: border-box;
+          padding: 10px 14px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          background: #fff;
+          color: #111;
+          font-family: inherit;
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1.2;
+          text-align: center;
+          cursor: pointer;
+        }
+
+        .payment-link-button:hover {
+          background: #f7f7f7;
+        }
+
+        @media (max-width: 600px) {
+          .payment-link-button {
+            min-height: 44px;
+            font-size: 14px;
+          }
+        }
+      `}</style>
     </div>
   );
 }

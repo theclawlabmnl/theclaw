@@ -6,11 +6,7 @@ import {
 } from "react";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-
 export default function StatusPage() {
-  const router = useRouter();
-
   const [mode, setMode] = useState<
     "reference" | "email"
   >("reference");
@@ -94,9 +90,8 @@ export default function StatusPage() {
         bookings.length === 1 &&
         bookings[0]?.token
       ) {
-        router.push(
-          `/status/${bookings[0].token}`
-        );
+        window.location.href =
+          `/status/${bookings[0].token}`;
 
         return;
       }
@@ -111,9 +106,8 @@ export default function StatusPage() {
         JSON.stringify(bookings)
       );
 
-      router.push(
-        "/status/results"
-      );
+      window.location.href =
+        "/status/results";
     } catch (
       error: any
     ) {

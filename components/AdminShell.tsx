@@ -29,7 +29,7 @@ export default function AdminShell({
           Workspace
         </div>
 
-        <AdminNav />
+        <AdminNav variant="desktop" />
 
         <div className="admin-sidebar-bottom">
           <div className="admin-sidebar-user">
@@ -49,15 +49,17 @@ export default function AdminShell({
 
       <div className="admin-workspace">
         <header className="admin-mobile-header">
-          <div>
+          <div className="admin-mobile-brand">
             <strong>The Claw Lab</strong>
             <span>Admin</span>
           </div>
 
-          <AdminNav />
-
           <LogoutButton />
         </header>
+
+        <div className="admin-mobile-nav-wrap">
+          <AdminNav variant="mobile" />
+        </div>
 
         <main className="admin-main">
           <div className="admin-content">
@@ -65,6 +67,7 @@ export default function AdminShell({
           </div>
         </main>
       </div>
+
     </div>
   );
 }
