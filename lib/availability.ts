@@ -74,7 +74,8 @@ function subtractWindow(
   windowEnd: number,
   blockStart: number,
   blockEnd: number
-) {
+): Array<[number, number]> {
+  
   if (
     blockEnd <= windowStart ||
     blockStart >= windowEnd
