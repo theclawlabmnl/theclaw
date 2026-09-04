@@ -3,8 +3,15 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { peso, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import SubmitRequest from "@/components/SubmitRequest";
+
+function peso(value: number) {
+  return `₱${Number(value || 0).toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
 export default async function Review({
   searchParams,
