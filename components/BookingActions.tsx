@@ -18,6 +18,7 @@ type Props = {
   promoName?: string | null;
   discountAmount?: number | null;
   discountVerified?: boolean;
+  hasVerifiedDownPayment?: boolean;
 };
 
 const statusLabels: Record<BookingStatus, string> = {
@@ -70,6 +71,7 @@ export default function BookingActions({
   promoName = null,
   discountAmount = 0,
   discountVerified = false,
+  hasVerifiedDownPayment = false,
 }: Props) {
   const [currentStatus, setCurrentStatus] =
     useState<BookingStatus>(status);
@@ -413,14 +415,11 @@ export default function BookingActions({
     currentStatus === "pending";
 
   const canComplete =
-    currentStatus === "confirmed";
+    currentStatus === "confirmed" &&
+    hasVerifiedDownPayment;
 
   const showComplete =
-    ![
-      "completed",
-      "cancelled",
-      "rejected",
-    ].includes(currentStatus);
+    canComplete;
 
   const canReject =
     currentStatus === "pending" ||
@@ -592,24 +591,15 @@ export default function BookingActions({
         <button
           type="button"
           className="action-button primary-button"
-          disabled={
-            loading ||
-            !canComplete
-          }
-          title={
-            canComplete
-              ? "Mark this confirmed booking as complete."
-              : "The booking must be confirmed before it can be completed."
-          }
+          disabled={loading}
+          title="Mark this confirmed booking as complete."
           onClick={() =>
             updateStatus("complete")
           }
         >
           {loading
             ? "Completing..."
-            : canComplete
-              ? "Mark as Complete"
-              : "Mark as Complete — Confirm First"}
+            : "Mark as Complete"}
         </button>
       )}
 

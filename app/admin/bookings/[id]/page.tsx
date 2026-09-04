@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import BookingActions from "@/components/BookingActions";
 import BookingPaymentActions from "@/components/BookingPaymentActions";
 import AdminBookingPaymentManager from "@/components/AdminBookingPaymentManager";
+import DeletePaymentButton from "@/components/DeletePaymentButton";
 
 type PageProps = {
   params: Promise<{
@@ -994,6 +995,24 @@ export default async function BookingDetailsPage({
         )
     );
 
+  const hasVerifiedDownPayment =
+    verifiedPayments.some(
+      (payment) =>
+        [
+          "down_payment",
+          "booking_payment",
+        ].includes(
+          String(
+            payment.payment_type ||
+              ""
+          )
+        ) &&
+        numberValue(
+          payment.net_amount ??
+            payment.amount
+        ) > 0
+    );
+
   const paidTowardBooking =
     verifiedPayments
       .filter(
@@ -1802,6 +1821,9 @@ export default async function BookingDetailsPage({
             discountVerified={
               discountVerified
             }
+            hasVerifiedDownPayment={
+              hasVerifiedDownPayment
+            }
           />
         </section>
 
@@ -1887,6 +1909,13 @@ export default async function BookingDetailsPage({
                 booking.
               </p>
             </div>
+
+            <Link
+              href="/admin/payments"
+              className="bd-small-button"
+            >
+              Payments Admin
+            </Link>
           </div>
 
           <div className="bd-payment-summary">
@@ -2043,6 +2072,12 @@ export default async function BookingDetailsPage({
                             )}
                           </span>
                         )}
+
+                      <DeletePaymentButton
+                        paymentId={
+                          payment.id
+                        }
+                      />
                     </div>
                   </div>
                 )
@@ -2093,15 +2128,13 @@ export default async function BookingDetailsPage({
               }
             />
 
-            {accessToken &&
-              bookingStatus ===
-                "approved" && (
-                <BookingPaymentActions
-                  token={
-                    accessToken
-                  }
-                />
-              )}
+            {accessToken && (
+              <BookingPaymentActions
+                token={
+                  accessToken
+                }
+              />
+            )}
           </div>
         </section>
 
@@ -2767,6 +2800,29 @@ export default async function BookingDetailsPage({
           font-size: 11px;
           line-height: 1.4;
           overflow-wrap: anywhere;
+        }
+
+        .bd-payment-delete-button {
+          margin-top: 8px;
+          padding: 6px 9px;
+          border: 1px solid #ead3d0;
+          border-radius: 7px;
+          background: #fff;
+          color: #9b2c24;
+          font-family: inherit;
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 1.2;
+          cursor: pointer;
+        }
+
+        .bd-payment-delete-button:hover {
+          background: #fff6f5;
+        }
+
+        .bd-payment-delete-button:disabled {
+          cursor: not-allowed;
+          opacity: .55;
         }
 
         .bd-payment-status {

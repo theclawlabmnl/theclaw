@@ -5,8 +5,12 @@ import {
   usePathname,
   useRouter,
 } from "next/navigation";
+import {
+  useEffect,
+  useState,
+} from "react";
 
-const links = [
+const workspaceLinks = [
   {
     href: "/admin",
     label: "Dashboard",
@@ -20,8 +24,15 @@ const links = [
     label: "Payments",
   },
   {
+    href: "/admin/reviews",
+    label: "Reviews",
+  },
+];
+
+const settingsLinks = [
+  {
     href: "/admin/calendar",
-    label: "Availability",
+    label: "Calendar / Availability",
   },
   {
     href: "/admin/services",
@@ -32,14 +43,32 @@ const links = [
     label: "Promotions",
   },
   {
-    href: "/admin/gallery",
-    label: "Gallery",
+    href: "/admin/settings",
+    label: "Payment Settings",
   },
+  {
+    href: "/admin/reviews",
+    label: "Review Queue",
+  },
+];
+
+const allLinks = [
+  ...workspaceLinks,
+  ...settingsLinks,
 ];
 
 type AdminNavProps = {
   variant?: "desktop" | "mobile";
 };
+
+function isActive(
+  pathname: string,
+  href: string
+) {
+  return href === "/admin"
+    ? pathname === "/admin"
+    : pathname.startsWith(href);
+}
 
 export default function AdminNav({
   variant = "desktop",
@@ -47,12 +76,26 @@ export default function AdminNav({
   const pathname = usePathname();
   const router = useRouter();
 
+  const settingsActive =
+    settingsLinks.some((link) =>
+      isActive(pathname, link.href)
+    );
+
+  const [
+    settingsOpen,
+    setSettingsOpen,
+  ] = useState(settingsActive);
+
+  useEffect(() => {
+    if (settingsActive) {
+      setSettingsOpen(true);
+    }
+  }, [settingsActive]);
+
   const current =
-    links.find((link) =>
-      link.href === "/admin"
-        ? pathname === "/admin"
-        : pathname.startsWith(link.href)
-    ) || links[0];
+    allLinks.find((link) =>
+      isActive(pathname, link.href)
+    ) || workspaceLinks[0];
 
   if (variant === "mobile") {
     return (
@@ -71,14 +114,29 @@ export default function AdminNav({
             router.push(event.target.value);
           }}
         >
-          {links.map((link) => (
-            <option
-              key={link.href}
-              value={link.href}
-            >
-              {link.label}
-            </option>
-          ))}
+          <optgroup label="Workspace">
+            {workspaceLinks.map((link) => (
+              <option
+                key={link.href}
+                value={link.href}
+              >
+                {link.label}
+              </option>
+            ))}
+          </optgroup>
+
+          <optgroup label="Settings">
+            {settingsLinks.map(
+              (link, index) => (
+                <option
+                  key={`${link.href}-${index}`}
+                  value={link.href}
+                >
+                  {link.label}
+                </option>
+              )
+            )}
+          </optgroup>
         </select>
 
         <style jsx global>{`
@@ -167,30 +225,89 @@ export default function AdminNav({
       className="admin-navigation admin-navigation-desktop"
       aria-label="Admin navigation"
     >
-      {links.map((link) => {
-        const active =
-          link.href === "/admin"
-            ? pathname === "/admin"
-            : pathname.startsWith(link.href);
+      <div className="admin-nav-section">
+        {workspaceLinks.map((link) => {
+          const active = isActive(
+            pathname,
+            link.href
+          );
 
-        return (
-          <Link
-            key={link.href}
-            href={link.href}
-            className={`admin-nav-link${
-              active ? " active" : ""
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`admin-nav-link${
+                active ? " active" : ""
+              }`}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="admin-nav-settings">
+        <button
+          type="button"
+          className={`admin-settings-toggle${
+            settingsActive
+              ? " active"
+              : ""
+          }`}
+          aria-expanded={settingsOpen}
+          aria-controls="admin-settings-menu"
+          onClick={() => {
+            setSettingsOpen(
+              (currentValue) =>
+                !currentValue
+            );
+          }}
+        >
+          <span>Settings</span>
+
+          <span
+            className={`admin-settings-chevron${
+              settingsOpen ? " open" : ""
             }`}
+            aria-hidden="true"
           >
-            {link.label}
-          </Link>
-        );
-      })}
+            ›
+          </span>
+        </button>
+
+        {settingsOpen && (
+          <div
+            id="admin-settings-menu"
+            className="admin-settings-menu"
+          >
+            {settingsLinks.map(
+              (link, index) => {
+                const active =
+                  isActive(
+                    pathname,
+                    link.href
+                  );
+
+                return (
+                  <Link
+                    key={`${link.href}-${index}`}
+                    href={link.href}
+                    className={`admin-settings-link${
+                      active
+                        ? " active"
+                        : ""
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              }
+            )}
+          </div>
+        )}
+      </div>
 
       <style jsx global>{`
-        /*
-         * DESKTOP ADMIN SHELL
-         * Keep the sidebar fixed while only the workspace scrolls.
-         */
         @media (min-width: 801px) {
           .admin-app-shell {
             min-height: 100vh;
@@ -209,7 +326,9 @@ export default function AdminNav({
           }
 
           .admin-workspace {
-            width: calc(100% - 240px) !important;
+            width: calc(
+              100% - 240px
+            ) !important;
             min-width: 0 !important;
             margin-left: 240px !important;
           }
@@ -225,7 +344,6 @@ export default function AdminNav({
           flex-direction: column;
           gap: 7px;
           width: 100%;
-
           padding: 0 !important;
           margin: 0 !important;
           background: transparent !important;
@@ -240,6 +358,13 @@ export default function AdminNav({
         .admin-navigation-desktop::after {
           display: none !important;
           content: none !important;
+        }
+
+        .admin-nav-section {
+          display: flex;
+          flex-direction: column;
+          gap: 7px;
+          width: 100%;
         }
 
         .admin-nav-link {
@@ -268,6 +393,102 @@ export default function AdminNav({
         .admin-nav-link.active {
           background: #faf8f6;
           border-color: #e4ddda;
+        }
+
+        .admin-nav-settings {
+          display: flex;
+          flex-direction: column;
+          width: 100%;
+        }
+
+        .admin-settings-toggle {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          width: 100%;
+          min-height: 40px;
+          padding: 0 12px;
+          border: 1px solid transparent;
+          border-radius: 10px;
+          background: transparent;
+          box-sizing: border-box;
+          color: var(--admin-text);
+          font-family: inherit;
+          font-size: 12px;
+          font-weight: 700;
+          text-align: left;
+          cursor: pointer;
+          transition:
+            background 0.15s ease,
+            border-color 0.15s ease;
+        }
+
+        .admin-settings-toggle:hover {
+          background: #faf8f6;
+          border-color: #eee5e2;
+        }
+
+        .admin-settings-toggle.active {
+          background: #faf8f6;
+          border-color: #e4ddda;
+        }
+
+        .admin-settings-chevron {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          flex: 0 0 18px;
+          font-size: 20px;
+          font-weight: 400;
+          line-height: 1;
+          transform: rotate(0deg);
+          transition:
+            transform 0.15s ease;
+        }
+
+        .admin-settings-chevron.open {
+          transform: rotate(90deg);
+        }
+
+        .admin-settings-menu {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          margin: 5px 0 2px 12px;
+          padding: 2px 0 2px 10px;
+          border-left: 1px solid #e4ddda;
+        }
+
+        .admin-settings-link {
+          display: flex;
+          align-items: center;
+          width: 100%;
+          min-height: 34px;
+          padding: 0 10px;
+          border: 1px solid transparent;
+          border-radius: 8px;
+          box-sizing: border-box;
+          color: var(--admin-text);
+          text-decoration: none;
+          font-size: 11px;
+          font-weight: 600;
+          transition:
+            background 0.15s ease,
+            border-color 0.15s ease;
+        }
+
+        .admin-settings-link:hover {
+          background: #faf8f6;
+          border-color: #eee5e2;
+        }
+
+        .admin-settings-link.active {
+          background: #faf8f6;
+          border-color: #e4ddda;
+          font-weight: 700;
         }
 
         @media (max-width: 800px) {

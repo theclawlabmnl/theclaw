@@ -107,6 +107,29 @@ function paymentNetAmount(payment: any) {
   );
 }
 
+function isVerifiedPayment(payment: any) {
+  return (
+    String(payment?.status || "") ===
+      "verified" ||
+    Boolean(payment?.verified_at)
+  );
+}
+
+function isVerifiedDownPayment(payment: any) {
+  return (
+    isVerifiedPayment(payment) &&
+    [
+      "down_payment",
+      "booking_payment",
+    ].includes(
+      normalizePaymentType(
+        payment?.payment_type
+      )
+    ) &&
+    paymentNetAmount(payment) > 0
+  );
+}
+
 function effectiveBookingTotal(booking: any) {
   const originalTotal = Number(
     booking?.estimated_total || 0
@@ -860,6 +883,31 @@ async function completeBooking(
   if (booking.status !== "confirmed") {
     throw new Error(
       "Only confirmed bookings can be completed."
+    );
+  }
+
+  const {
+    data: bookingPayments,
+    error: bookingPaymentsError,
+  } = await db
+    .from("payments")
+    .select(
+      "id,amount,net_amount,payment_type,status,verified_at"
+    )
+    .eq("booking_id", bookingId);
+
+  if (bookingPaymentsError) {
+    throw bookingPaymentsError;
+  }
+
+  const hasVerifiedDownPayment =
+    (bookingPayments || []).some(
+      isVerifiedDownPayment
+    );
+
+  if (!hasVerifiedDownPayment) {
+    throw new Error(
+      "A verified down payment is required before the booking can be completed."
     );
   }
 
@@ -2446,6 +2494,222 @@ async function handleRecordPayment(
   };
 }
 
+async function handleDeletePayment(
+  db: ReturnType<typeof supabaseAdmin>,
+  body: any,
+  user: {
+    id: string;
+    email?: string | null;
+  }
+) {
+  const paymentId = String(
+    body.payment_id || ""
+  ).trim();
+
+  if (!paymentId) {
+    throw new Error(
+      "Payment ID is required."
+    );
+  }
+
+  const { data: payment, error: paymentError } =
+    await db
+      .from("payments")
+      .select(
+        `
+          id,
+          booking_id,
+          method,
+          amount,
+          status,
+          verified_at,
+          paid_at,
+          payment_type,
+          gross_amount,
+          processing_fee,
+          net_amount,
+          note,
+          created_at
+        `
+      )
+      .eq("id", paymentId)
+      .maybeSingle();
+
+  if (paymentError) {
+    throw paymentError;
+  }
+
+  if (!payment) {
+    throw new Error(
+      "Payment record not found or it was already deleted."
+    );
+  }
+
+  const bookingId = String(
+    payment.booking_id || ""
+  );
+
+  const booking =
+    await getBookingWithFinancials(
+      db,
+      bookingId
+    );
+
+  const {
+    data: remainingPayments,
+    error: remainingPaymentsError,
+  } = await db
+    .from("payments")
+    .select(
+      "id,amount,net_amount,payment_type,status,verified_at"
+    )
+    .eq("booking_id", bookingId)
+    .neq("id", paymentId);
+
+  if (remainingPaymentsError) {
+    throw remainingPaymentsError;
+  }
+
+  const verifiedRemaining =
+    (remainingPayments || []).filter(
+      isVerifiedPayment
+    );
+
+  const hasVerifiedDownPayment =
+    verifiedRemaining.some(
+      isVerifiedDownPayment
+    );
+
+  if (
+    booking.status === "completed" &&
+    isVerifiedDownPayment(payment) &&
+    !hasVerifiedDownPayment
+  ) {
+    throw new Error(
+      "This is the verified down payment for a completed booking. Reset the booking before deleting it."
+    );
+  }
+
+  const verifiedBookingTotal =
+    verifiedRemaining
+      .filter((item) =>
+        [
+          "down_payment",
+          "booking_payment",
+          "balance",
+        ].includes(
+          normalizePaymentType(
+            item.payment_type
+          )
+        )
+      )
+      .reduce(
+        (sum, item) =>
+          sum + paymentNetAmount(item),
+        0
+      );
+
+  const { error: deleteError } =
+    await db
+      .from("payments")
+      .delete()
+      .eq("id", paymentId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  const now = new Date().toISOString();
+  const bookingPatch: Record<
+    string,
+    unknown
+  > = {
+    down_payment:
+      roundMoney(
+        verifiedBookingTotal
+      ),
+  };
+
+  /*
+   * A confirmed booking depends on a verified down payment.
+   * If that record is removed as an admin correction, return
+   * the booking to Approved so the payment flow is valid again.
+   */
+  if (
+    booking.status === "confirmed" &&
+    !hasVerifiedDownPayment
+  ) {
+    bookingPatch.status = "approved";
+    bookingPatch.approved_at = now;
+    bookingPatch.confirmed_at = null;
+    bookingPatch.completed_at = null;
+  }
+
+  const { error: bookingUpdateError } =
+    await db
+      .from("bookings")
+      .update(bookingPatch)
+      .eq("id", bookingId);
+
+  if (bookingUpdateError) {
+    throw bookingUpdateError;
+  }
+
+  await recordActivity(db, {
+    bookingId,
+    action: "payment_deleted",
+    description: `Payment record deleted: ₱${roundMoney(
+      paymentNetAmount(payment)
+    ).toFixed(2)} via ${
+      payment.method || "Unknown"
+    }.`,
+    oldValue: {
+      payment_id: payment.id,
+      status: payment.status,
+      amount: Number(
+        payment.amount || 0
+      ),
+      net_amount:
+        paymentNetAmount(payment),
+      method:
+        payment.method || null,
+      payment_type:
+        normalizePaymentType(
+          payment.payment_type
+        ),
+      note: payment.note || null,
+    },
+    newValue: {
+      payment_deleted: true,
+      paid_toward_booking:
+        roundMoney(
+          verifiedBookingTotal
+        ),
+      has_verified_down_payment:
+        hasVerifiedDownPayment,
+      booking_status:
+        bookingPatch.status ||
+        booking.status,
+    },
+    actorId: user.id,
+    actorEmail: user.email || null,
+  });
+
+  return {
+    ok: true,
+    message: "Payment record deleted.",
+    booking: {
+      status:
+        bookingPatch.status ||
+        booking.status,
+      down_payment:
+        roundMoney(
+          verifiedBookingTotal
+        ),
+    },
+  };
+}
+
 async function handleDelete(
   db: ReturnType<typeof supabaseAdmin>,
   bookingId: string,
@@ -2467,34 +2731,47 @@ async function handleDelete(
         "id,reference_code,customer_name,status"
       )
       .eq("id", bookingId)
-      .single();
+      .maybeSingle();
 
-  if (error || !booking) {
-    throw (
-      error ||
-      new Error("Booking not found.")
+  if (error) {
+    throw error;
+  }
+
+  if (!booking) {
+    throw new Error(
+      "Booking not found or it was already deleted."
     );
   }
 
-  await db
-    .from("payment_proofs")
-    .delete()
-    .eq("booking_id", bookingId);
+  /*
+   * Delete child records before deleting the booking.
+   * Activity logs also reference the booking and must
+   * be removed before the parent row.
+   */
+  const childTables = [
+    "payment_proofs",
+    "booking_files",
+    "payments",
+    "booking_services",
+    "booking_activity_logs",
+  ] as const;
 
-  await db
-    .from("booking_files")
-    .delete()
-    .eq("booking_id", bookingId);
+  for (const table of childTables) {
+    const { error: childDeleteError } =
+      await db
+        .from(table)
+        .delete()
+        .eq("booking_id", bookingId);
 
-  await db
-    .from("payments")
-    .delete()
-    .eq("booking_id", bookingId);
-
-  await db
-    .from("booking_services")
-    .delete()
-    .eq("booking_id", bookingId);
+    if (childDeleteError) {
+      throw new Error(
+        `Unable to delete booking ${table.replaceAll(
+          "_",
+          " "
+        )}: ${childDeleteError.message}`
+      );
+    }
+  }
 
   const { error: deleteError } =
     await db
@@ -2517,7 +2794,8 @@ async function handleDelete(
       previousStatus:
         booking.status,
       actorId: user.id,
-      actorEmail: user.email || null,
+      actorEmail:
+        user.email || null,
     }
   );
 
@@ -2733,6 +3011,17 @@ export async function PATCH(
     ) {
       const result =
         await handleRecordPayment(
+          db,
+          body,
+          user
+        );
+
+      return NextResponse.json(result);
+    }
+
+    if (action === "delete_payment") {
+      const result =
+        await handleDeletePayment(
           db,
           body,
           user

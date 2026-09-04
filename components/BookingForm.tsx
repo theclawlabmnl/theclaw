@@ -1501,7 +1501,10 @@ export default function BookingForm({
                         </span>
                       </button>
 
-                      {checked && (
+                      {checked &&
+                        (service.service_variations || []).some(
+                          (variation) => variation.active
+                        ) && (
                         <div className="booking-variation">
                           <label>
                             Variation
