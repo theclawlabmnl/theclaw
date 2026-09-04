@@ -320,6 +320,216 @@ async function sendCustomerBookingEmail({
 }
 
 /*
+ * CUSTOMER BOOKING CONFIRMED EMAIL
+ *
+ * Sent when a verified booking payment moves the booking
+ * into CONFIRMED status.
+ */
+export async function notifyBookingConfirmed({
+  booking,
+  services,
+}: {
+  booking: {
+    id?: string;
+    reference_code?: string;
+    access_token?: string;
+    customer_name?: string;
+    email?: string;
+    preferred_date?: string;
+    preferred_time?: string;
+    estimated_total?: number | string;
+    discount_amount?: number | string;
+    down_payment?: number | string;
+    confirmed_at?: string;
+    removal?: string;
+    notes?: string;
+  };
+  services: Array<{
+    service_name?: string;
+    variation_name?: string | null;
+    price?: number | string;
+  }>;
+}) {
+  if (!resend) {
+    console.error(
+      "Booking confirmed email skipped: RESEND_API_KEY is not configured."
+    );
+    return;
+  }
+
+  const customerEmail = booking.email?.trim();
+
+  if (!customerEmail) {
+    console.error(
+      "Booking confirmed email skipped: customer email address is missing."
+    );
+    return;
+  }
+
+  const baseUrl = siteUrl();
+
+  if (!baseUrl) {
+    console.error(
+      "Booking confirmed email skipped: NEXT_PUBLIC_SITE_URL is not configured."
+    );
+    return;
+  }
+
+  const reference = booking.reference_code || "";
+  const token = booking.access_token || "";
+
+  const confirmationUrl = token
+    ? `${baseUrl}/confirmed/${encodeURIComponent(token)}`
+    : "";
+
+  const customerName = booking.customer_name || "there";
+  const baseTotal = Number(booking.estimated_total || 0);
+  const discount = Number(booking.discount_amount || 0);
+  const finalTotal = Math.max(0, baseTotal - discount);
+  const paid = Number(booking.down_payment || 0);
+  const remaining = Math.max(0, finalTotal - paid);
+
+  const serviceList =
+    services.length > 0
+      ? services
+          .map(
+            (item) =>
+              `<tr>
+                <td style="padding:8px 0;border-bottom:1px solid #eee7e5">
+                  ${escapeHtml(item.service_name || "Service")}${
+                    item.variation_name
+                      ? ` — ${escapeHtml(item.variation_name)}`
+                      : ""
+                  }
+                </td>
+                <td style="padding:8px 0;border-bottom:1px solid #eee7e5;text-align:right">
+                  ${peso(item.price)}
+                </td>
+              </tr>`
+          )
+          .join("")
+      : `<tr><td style="padding:8px 0">Service</td><td></td></tr>`;
+
+  try {
+    const result = await resend.emails.send({
+      from: fromEmail,
+      to: [customerEmail],
+      subject: `Booking Confirmed — ${reference || "The Claw Lab MNL"}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;padding:20px;color:#3d3535;line-height:1.65">
+          <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9d7b7b;margin-bottom:18px">
+            The Claw Lab MNL
+          </div>
+
+          <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;margin:0 0 12px">
+            Your Booking Is Confirmed ♡
+          </h1>
+
+          <p>Hi ${escapeHtml(customerName)}!</p>
+
+          <p>
+            Your payment has been verified and your appointment with
+            <strong>The Claw Lab MNL</strong> is now confirmed.
+          </p>
+
+          <div style="margin:24px 0;padding:22px;border:1px solid #eadede;border-radius:16px;background:#fcfaf9">
+            <p style="margin:0 0 14px;font-family:Georgia,serif;font-size:21px">
+              Booking Summary
+            </p>
+
+            <p style="margin:0 0 12px"><strong>Booking ID:</strong><br />${escapeHtml(reference)}</p>
+            <p style="margin:0 0 12px"><strong>Date:</strong><br />${escapeHtml(
+              formatBookingDate(booking.preferred_date)
+            )}</p>
+            <p style="margin:0 0 16px"><strong>Time:</strong><br />${escapeHtml(
+              formatBookingTime(booking.preferred_time)
+            )}</p>
+
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:0 0 8px;border-bottom:1px solid #ddd">Service</th>
+                  <th style="text-align:right;padding:0 0 8px;border-bottom:1px solid #ddd">Price</th>
+                </tr>
+              </thead>
+              <tbody>${serviceList}</tbody>
+            </table>
+
+            <div style="margin-top:14px;padding-top:14px;border-top:1px solid #eee7e5">
+              <p style="margin:0 0 6px"><strong>Subtotal:</strong> ${peso(baseTotal)}</p>
+              ${
+                discount > 0
+                  ? `<p style="margin:0 0 6px"><strong>Discount:</strong> -${peso(discount)}</p>`
+                  : ""
+              }
+              <p style="margin:0 0 6px"><strong>Total:</strong> ${peso(finalTotal)}</p>
+              <p style="margin:0 0 6px"><strong>Paid:</strong> ${peso(paid)}</p>
+              <p style="margin:0"><strong>Remaining:</strong> ${peso(remaining)}</p>
+
+              ${
+                booking.removal
+                  ? `<p style="margin:12px 0 0"><strong>Removal:</strong> ${escapeHtml(
+                      booking.removal
+                    )}</p>`
+                  : ""
+              }
+
+              ${
+                booking.notes?.trim()
+                  ? `<p style="margin:12px 0 0"><strong>Notes:</strong><br />${escapeHtml(
+                      booking.notes
+                    ).replaceAll("\\n", "<br />")}</p>`
+                  : ""
+              }
+            </div>
+          </div>
+
+          ${
+            confirmationUrl
+              ? `<p style="margin:22px 0">
+                  <a
+                    href="${escapeHtml(confirmationUrl)}"
+                    style="display:inline-block;background:#3d3535;color:#fff;text-decoration:none;padding:12px 20px;border-radius:999px;font-size:13px;font-weight:600"
+                  >
+                    View Confirmation →
+                  </a>
+                </p>`
+              : ""
+          }
+
+          <div style="margin-top:30px;padding-top:18px;border-top:1px solid #eee7e5;color:#8a7b7b;font-size:12px">
+            <strong>The Claw Lab MNL</strong><br />
+            Novaliches, Quezon City, Philippines
+
+            <p style="margin:14px 0 0;color:#8a7b7b;font-size:11px;line-height:1.5">
+              Please do not reply to this email.
+              This inbox is not monitored and replies will not be received.
+            </p>
+          </div>
+        </div>
+      `,
+    });
+
+    if (result.error) {
+      console.error(
+        "Booking confirmed customer email Resend error:",
+        result.error
+      );
+    } else {
+      console.log(
+        "Booking confirmed customer email sent:",
+        reference
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Booking confirmed customer email failed:",
+      error
+    );
+  }
+}
+
+/*
  * CUSTOMER COMPLETED EMAIL
  *
  * Sent once when an admin marks a booking COMPLETED.
@@ -346,6 +556,7 @@ export async function notifyBookingCompleted({
     preferred_time?: string;
     estimated_total?: number | string;
     discount_amount?: number | string;
+    down_payment?: number | string;
     removal?: string;
     notes?: string;
   };
@@ -391,11 +602,9 @@ export async function notifyBookingCompleted({
 
   const reference = booking.reference_code || "";
 
-  const reviewUrl = booking.access_token
-    ? `${baseUrl}/review/${encodeURIComponent(
-        booking.access_token
-      )}?booking_id=${encodeURIComponent(bookingId)}`
-    : `${baseUrl}/review?booking_id=${encodeURIComponent(bookingId)}`;
+  const reviewUrl = `${baseUrl}/review?booking_id=${encodeURIComponent(
+    bookingId
+  )}`;
 
   const statusUrl = booking.access_token
     ? `${baseUrl}/status/${encodeURIComponent(booking.access_token)}`
